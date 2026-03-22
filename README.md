@@ -9,7 +9,12 @@
 这是一个用于学习和技术交流的开源 Emby 客户端（TV/盒子向界面）。
 项目主要用于学习 Android 在 TV/遥控交互、焦点管理、流式播放集成（Emby API）以及多语言本地化等方面的实践。
 
+隐私安全：App不收集任何个人信息。只主动访问了 [github release API](https://api.github.com/repos/shareven/openemby_tv/releases/latest) 的接口用于下载更新。其他数据接口为用户自己填的地址。
+
 This is an open-source Emby client aimed at learning and exchanging technical knowledge. The project demonstrates Android usage for TV/remote UI, focus handling, streaming integration with Emby API, and localization.
+
+Privacy & Security: The app does not collect any personal information. It only actively accesses the [GitHub releases API](https://api.github.com/repos/shareven/openemby_tv/releases/latest) to download updates. All other data connections are user-configured server addresses entered by the user.
+
 
  ## 下载 / Download
 
