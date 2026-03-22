@@ -71,7 +71,7 @@ class AppUpdateManager(private val context: Context) {
             // 创建下载管理器，配置下载监听器
             downloadManager = DownloadManager.Builder(context)
                 .apkUrl(downloadUrl)
-                .apkName("emby_tv.apk")
+                .apkName("openemby_tv.apk")
                 .smallIcon(R.mipmap.ic_launcher)
                 .showNotification(true)
                 .jumpInstallPage(true)

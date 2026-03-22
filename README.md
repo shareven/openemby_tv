@@ -1,4 +1,4 @@
-# Emby TV 客户端 / Emby TV Client
+# OpenEmby TV / 开源 Emby TV 客户端
 
 简体中文 | English
 
@@ -13,44 +13,44 @@ This is an open-source Emby client aimed at learning and exchanging technical kn
 
  ## 下载 / Download
 
- 最新版本 / Newest release: v2.0.10
+ 最新版本 / Newest release: v2.0.11
 
 
- [Android apk release](https://github.com/shareven/emby_tv/releases/)
+ [Android apk release](https://github.com/shareven/openemby_tv/releases/)
 
  ![Minimum Android](https://img.shields.io/badge/Minimum-Android%206.0-3DDC84?logo=android&style=flat)
 
 
-![GitHub All Releases](https://img.shields.io/github/downloads/shareven/emby_tv/total)
+![GitHub All Releases](https://img.shields.io/github/downloads/shareven/openemby_tv/total)
 
 ## 特性 / Features
 
+- 支持扫码录入登录信息
+- 支持多种主题色选择
+- 搜索功能，支持多服务器多帐号的融合搜索
+- 支持硬解播放4k DHR视频，硬解失败时自动调用服务器转码播放，服务器硬件加速时显示⚡️
+- 支持杜比视界硬解，显示杜比视界相关信息
 - 支持 TV/遥控器焦点与按键交互
 - 播放器（支持直接播放与转码信息展示）
 - 选集与剧集导航（Series/Episodes）
 - 简中/英文本地化（跟随系统语言）
-- 扫码录入登录信息
-- 支持硬解播放4k DHR视频，硬解失败时自动调用服务器转码播放，服务器硬件加速时显示⚡️
-- 支持多种主题色选择
 - 首页展示收藏列表
-- 搜索功能，支持多服务器多帐号的融合搜索
 - 支持跳过片头
 - 支持缓冲设置
-- 支持杜比视界硬解，显示杜比视界相关信息
 - 支持更多音频本地ffmpeg解码（"flac", "alac", "pcm_mulaw", "pcm_alaw", "mp3", "aac", "ac3", "eac3", "dca", "mlp", "truehd"）
 
+- Scan QR code to enter login information 
+- Supports multiple theme color options 
+- Search function: Supports integrated searching across multiple servers and accounts. 
+- Supports hardware decoding of 4K HDR video; if hardware decoding fails, it automatically switches to server-side transcoding for playback.  A lightning bolt icon (⚡️) is displayed when server-side hardware acceleration is active.
+- Supports Dolby Vision hardware decoding, displays Dolby Vision related information
 - Focus and key handling for TV remotes
 - Player with direct stream/transcode info
 - Series / Episodes navigation
 - Localization: Simplified Chinese and English (follows system locale)
-- Scan QR code to enter login information 
-- Supports hardware decoding of 4K HDR video; if hardware decoding fails, it automatically switches to server-side transcoding for playback.  A lightning bolt icon (⚡️) is displayed when server-side hardware acceleration is active.
-- Supports multiple theme color options 
 - Displays a favorites list on the homepage
-- Search function: Supports integrated searching across multiple servers and accounts. 
 - Skip Intro: Supports skipping opening credits/intros. 
 - Buffer settings support
-- Supports Dolby Vision hardware decoding, displays Dolby Vision related information
 - Supports more audio local ffmpeg decoding ("flac", "alac", "pcm_mulaw", "pcm_alaw", "mp3", "aac", "ac3", "eac3", "dca", "mlp", "truehd")
 
 ## 展示 / Show
@@ -93,7 +93,7 @@ Track switching, progress control, keep screen on
 
 
 ### 外部服务 / External Services
-- `GET https://api.github.com/repos/shareven/emby_tv/releases/latest` - 获取最新版本信息 / Get latest version info
+- `GET https://api.github.com/repos/shareven/openemby_tv/releases/latest` - 获取最新版本信息 / Get latest version info
 
 ## 贡献与交流 / Contributing
 

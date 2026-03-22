@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Emby TV</string>
+    <string name="app_name">OpenEmby TV</string>
     <string name="new_version_available">New version available: %1$s</string>
     <string name="server_url">Server URL</string>
     <string name="host">Host</string>
@@ -51,7 +51,7 @@
     <string name="fps_suffix">fps</string>
     <string name="playback_correction_off">Off</string>
     <string name="playback_correction_server">Server transcode to H.264</string>
-    <string name="footer_notice">This is a free open-source Emby client for learning and technical exchange; it does not collect any personal information, and commercial use is prohibited.\nRepository: https://github.com/shareven/emby_tv</string>
+    <string name="footer_notice">This is a free open-source Emby client for learning and technical exchange; it does not collect any personal information, and commercial use is prohibited.\nRepository: https://github.com/shareven/openemby_tv</string>
 
     <string name="Unknown">Unknown reason</string>
     <string name="ContainerNotSupported">Container not supported</string>

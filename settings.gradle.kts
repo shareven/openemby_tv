@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "emby_tv"
+rootProject.name = "openemby_tv"
 include(":app")
 
 // include(":decoder_ffmpeg")
