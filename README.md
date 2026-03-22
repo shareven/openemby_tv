@@ -77,13 +77,15 @@
 ## 🌍 本地化 / Localization
 
 本项目维护中/英文文本于以下文件，界面会根据系统语言自动选择对应语言：
+This project maintains Chinese and English text in the following files, and the UI automatically selects the corresponding language based on system settings:
 
-| 文件路径 | 语言 |
+| 文件路径 / File Path | 语言 / Language |
 |:--------|:----:|
-| `app/src/main/res/values-zh/strings.xml` | 简体中文 |
+| `app/src/main/res/values-zh/strings.xml` | 简体中文 / Simplified Chinese |
 | `app/src/main/res/values/strings.xml` | English |
 
 > 本项目维护中文和英文文本于对应文件中，界面会根据系统语言自动选择。若要新增翻译，请在对应文件中添加键。
+> This project maintains Chinese and English text in their respective files. The UI automatically selects the language based on system settings. To add a new translation, add the key to the corresponding file.
 
 ---
 
@@ -98,10 +100,16 @@
 ```
 
 ### 1️⃣ 播放初始化 / Playback Initialization
+```
 用户点击播放 → 调用播放信息接口 → 设置播放器 → 开始播放
+User clicks play → Call playback info API → Setup player → Start playback
+```
 
 ### 2️⃣ 播放状态上报 / Playback Status Reporting
+```
 播放开始 → 注册会话 → 定期上报进度 → 播放结束
+Playback starts → Register session → Report progress periodically → Playback ends
+```
 
 ### 3️⃣ 错误处理与转码管理 / Error Handling & Transcoding
 
@@ -112,19 +120,20 @@ Playback fails ──▶ Auto transcode fallback ──▶ Retry
 
 **转码服务管理 / Transcoding Service Management:**
 
-| 场景 | 行为 |
+| 场景 / Scenario | 行为 / Behavior |
 |:----|:-----|
-| 轨道切换 | 检测到转码 URL 存在则停止之前的转码任务 |
-| 数据加载 | 确保没有残留的转码任务在运行 |
+| 轨道切换 / Track switching | 检测到转码 URL 存在则停止之前的转码任务 / Stop previous transcode task when transcode URL is detected |
+| 数据加载 / Data loading | 确保没有残留的转码任务在运行 / Ensure no lingering transcode tasks |
 
 ### 4️⃣ 用户交互 / User Interaction
 轨道切换、进度控制、屏幕常亮
+Track switching, progress control, keep screen on
 
 ---
 
 ## 🔗 外部服务 / External Services
 
-| 接口 | 用途 |
+| 接口 / API | 用途 / Purpose |
 |:----|:----|
 | `GET https://api.github.com/repos/shareven/openemby_tv/releases/latest` | 获取最新版本信息 / Get latest version info |
 
@@ -133,6 +142,7 @@ Playback fails ──▶ Auto transcode fallback ──▶ Retry
 ## 🤝 贡献与交流 / Contributing
 
 欢迎通过 Issues 或 PR 交流问题与改进想法！
+Feel free to open Issues or PRs to discuss problems or suggest improvements!
 
 > Please open Issues or PRs for bugs or improvements. This project is primarily for learning and technical exchange.
 
@@ -143,16 +153,18 @@ Playback fails ──▶ Auto transcode fallback ──▶ Retry
 <a rel="license" href="https://creativecommons.org/licenses/by-nc/4.0/"><img alt="CC BY-NC 4.0 License" style="border-width:0" src="https://i.creativecommons.org/l/by-nc/4.0/88x31.png" /></a>
 
 本项目使用 **禁止商业用途** 的许可：
+This project is licensed under a **non-commercial** license:
 
 **Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)**
 
-| 允许 | 禁止 |
+| 允许 / Allowed | 禁止 / Not Allowed |
 |:----|:----:|
-| ✅ 复制和分发 | ❌ 商业用途 |
-| ✅ 改编和改造 | |
-| ✅ 注明作者和来源 | |
+| ✅ 复制和分发 / Copy and distribute | ❌ 商业用途 / Commercial use |
+| ✅ 改编和改造 / Adapt and remix | |
+| ✅ 注明作者和来源 / Attribution required | |
 
 **简要说明**：允许复制、分发和改编，但禁止用于商业用途，使用时需注明作者并链接到许可协议。
+**Summary**: You are free to copy, distribute, and adapt the work, but you cannot use it for commercial purposes. You must attribute the author and include a link to the license.
 
 > You are free to copy, distribute, and adapt the work, as long as you don't use it for commercial purposes. You must attribute the work and include a link to the license.
 
@@ -166,6 +178,7 @@ https://creativecommons.org/licenses/by-nc/4.0/legalcode
 <div align="center">
 
 **如果这个项目对你有帮助，欢迎 ⭐ Star**
+**If this project is helpful to you, please ⭐ Star**
 
 *Made with ❤️ for the Emby community*
 
