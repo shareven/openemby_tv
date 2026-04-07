@@ -46,10 +46,12 @@ fun TopStatusBar(
     needUpdate: Boolean,
     showSearchButton: Boolean = false,
     userInfo: String? = null,
+    onMenuClick: (() -> Unit)? = null,
     onSearchClick: (() -> Unit)? = null,
     onUserInfoClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val menuFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val userInfoFocusRequester = remember { FocusRequester() }
 
@@ -65,27 +67,47 @@ fun TopStatusBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.Menu,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(12.dp))
+                if (onMenuClick != null) {
+                    Surface(
+                        onClick = onMenuClick,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .focusRequester(menuFocusRequester),
+                        shape = ClickableSurfaceDefaults.shape(androidx.compose.foundation.shape.CircleShape),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color.Transparent,
+                            focusedContainerColor = Color.White,
+                            contentColor = Color.White,
+                            focusedContentColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Menu,
+                                contentDescription = stringResource(R.string.menu),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
 
-                // Base text
                 Text(
-                    text = "${stringResource(R.string.press_menu_to_show_menu)}  $currentVersion",
+                    text ="OpenEmby TV "+ currentVersion,
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                // Highlighted update text if available
                 if (needUpdate) {
                     Text(
                         text = " ( ${stringResource(R.string.new_version_available, newVersion)} )",
-                        color = MaterialTheme.colorScheme.secondary, // Highlight color
+                        color = MaterialTheme.colorScheme.secondary,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )

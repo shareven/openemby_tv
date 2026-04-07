@@ -114,6 +114,7 @@ fun HomeScreen(
             needUpdate = mainViewModel.needUpdate,
             showSearchButton = true,
             userInfo = userInfo,
+            onMenuClick = { showMenu = true },
             onSearchClick = {
                 navController.navigate("search")
             },

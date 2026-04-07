@@ -188,7 +188,8 @@ fun LoginScreen(
         TopStatusBar(
             currentVersion = mainViewModel.currentVersion,
             newVersion = mainViewModel.newVersion,
-            needUpdate = mainViewModel.needUpdate
+            needUpdate = mainViewModel.needUpdate,
+            onMenuClick = { showMenu = true }
         )
         Row(
             modifier = Modifier.fillMaxSize(),

@@ -158,6 +158,7 @@
 
     <!-- Search -->
     <string name="search">Search</string>
+    <string name="menu">Menu</string>
     <string name="search_hint">Enter search term</string>
     <string name="search_results">Search Results</string>
     <string name="no_search_results">No results found</string>

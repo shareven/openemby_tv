@@ -158,6 +158,7 @@
 
     <!-- Search -->
     <string name="search">搜索</string>
+    <string name="menu">菜单</string>
     <string name="search_hint">输入搜索关键词</string>
     <string name="search_results">搜索结果</string>
     <string name="no_search_results">未找到搜索结果</string>
