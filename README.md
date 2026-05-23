@@ -59,6 +59,7 @@
 | ⏭️ | 支持跳过片头 | Skip opening credits/intros |
 | 💾 | 支持缓冲设置 | Buffer settings support |
 | 🔊 | 支持更多音频本地 ffmpeg 解码 | Extended audio codec support via local ffmpeg |
+| 🌐 | 支持配置 HTTP/SOCKS5 代理（仅代理 Emby 服务） | HTTP/SOCKS5 proxy support (Emby service only) |
 
 > **支持的音频格式**: `flac`, `alac`, `pcm_mulaw`, `pcm_alaw`, `mp3`, `aac`, `ac3`, `eac3`, `dca`, `mlp`, `truehd`
 
