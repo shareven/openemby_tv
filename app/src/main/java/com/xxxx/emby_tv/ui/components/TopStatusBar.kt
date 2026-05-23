@@ -37,6 +37,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.xxxx.emby_tv.R
+import com.xxxx.emby_tv.data.local.PreferencesManager
 
 
 @Composable
@@ -54,6 +55,7 @@ fun TopStatusBar(
     val menuFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val userInfoFocusRequester = remember { FocusRequester() }
+    val proxyEnabled = remember { PreferencesManager(context).proxyEnabled }
 
     Box(
         modifier = Modifier
@@ -111,6 +113,25 @@ fun TopStatusBar(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                if (proxyEnabled) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(
+                                MaterialTheme.colorScheme.onSecondary.copy(alpha = 0.8f),
+                                RoundedCornerShape(100)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.proxy_indicator),
+                            color = MaterialTheme.colorScheme.secondary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

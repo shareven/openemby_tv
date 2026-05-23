@@ -50,6 +50,14 @@ fun HomeScreen(
     val libraryLatestItems = homeViewModel.libraryLatestItems
     val favoriteItems = homeViewModel.favoriteItems
     val isLoading = homeViewModel.isLoading
+    val errorMessage = homeViewModel.errorMessage
+
+    LaunchedEffect(errorMessage) {
+        if (errorMessage != null) {
+            android.widget.Toast.makeText(context, errorMessage, android.widget.Toast.LENGTH_LONG).show()
+            homeViewModel.clearError()
+        }
+    }
 
     // 检查更新
     LaunchedEffect(Unit) {
@@ -80,6 +88,10 @@ fun HomeScreen(
             onSearch = {
                 showMenu = false
                 navController.navigate("search")
+            },
+            onProxySettings = {
+                showMenu = false
+                navController.navigate("proxy_settings")
             }
         )
     }

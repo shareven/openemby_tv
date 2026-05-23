@@ -57,16 +57,24 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             errorMessage = null
 
             try {
-                // 并行加载
-                val resumeDeferred = async { repository.getResumeItems() }
-                val latestDeferred = async { repository.getLatestItems() }
-                val favDeferred = async { repository.getFavoriteItems() }
+                val resumeDeferred = async {
+                    try { repository.getResumeItems() }
+                    catch (e: Exception) { errorMessage = e.message; emptyList() }
+                }
+                val latestDeferred = async {
+                    try { repository.getLatestItems() }
+                    catch (e: Exception) { errorMessage = e.message; emptyList() }
+                }
+                val favDeferred = async {
+                    try { repository.getFavoriteItems() }
+                    catch (e: Exception) { errorMessage = e.message; emptyList() }
+                }
 
                 resumeItems = resumeDeferred.await()
                 libraryLatestItems = latestDeferred.await()
                 favoriteItems = favDeferred.await()
             } catch (e: Exception) {
-                errorMessage = e.message
+                if (errorMessage == null) errorMessage = e.message
                 resumeItems = emptyList()
                 libraryLatestItems = emptyList()
                 favoriteItems = emptyList()
@@ -98,5 +106,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 ErrorHandler.logError("HomeViewModel", "加载数据失败", e)
             }
         }
+    }
+
+    fun clearError() {
+        errorMessage = null
     }
 }

@@ -56,7 +56,7 @@
     <string name="playback_correction">播放校正</string>
     <string name="playback_correction_off">关闭</string>
     <string name="playback_correction_server">服务器转码为H.264</string>
-    <string name="footer_notice">这是一个用于学习和技术交流的开源免费 OpenEmby 客户端，不收集任何个人信息，禁止商业用途。\n开源地址：https://github.com/shareven/openemby_tv</string>
+    <string name="footer_notice">这是一个用于学习和技术交流的开源免费 Emby 客户端，不收集任何个人信息，禁止商业用途。\n开源地址：https://github.com/shareven/openemby_tv</string>
 
     <string name="Unknown">未知原因</string>
     <string name="ContainerNotSupported">容器格式不受支持</string>
@@ -149,6 +149,7 @@
     <string name="error_ssl_failed">安全连接失败</string>
     <string name="error_network_error">网络错误，请重试</string>
     <string name="error_unknown">未知错误</string>
+    <string name="error_proxy_connection">代理连接失败，请检查代理信息是否正确</string>
 
     <!-- Intro Skip -->
     <string name="skip_intro">跳过片头</string>
@@ -205,4 +206,24 @@
     <string name="reset_default">恢复默认</string>
     <string name="seconds">%1$d秒</string>
     <string name="mega_bytes">%1$dMB</string>
+
+    <!-- 代理设置 -->
+    <string name="proxy_settings">代理设置</string>
+    <string name="proxy_enable">启用代理</string>
+    <string name="proxy_disable">关闭代理</string>
+    <string name="proxy_type">代理类型</string>
+    <string name="proxy_type_http">HTTP</string>
+    <string name="proxy_type_socks5">SOCKS5</string>
+    <string name="proxy_host">代理地址</string>
+    <string name="proxy_port">代理端口</string>
+    <string name="proxy_username">用户名</string>
+    <string name="proxy_password">密码</string>
+    <string name="proxy_optional">可选</string>
+    <string name="proxy_only_emby">仅代理Emby服务</string>
+    <string name="proxy_indicator">代理</string>
+    <string name="proxy_save">保存</string>
+    <string name="proxy_saved">代理设置已保存</string>
+    <string name="proxy_scan_hint">扫码配置代理信息</string>
+    <string name="proxy_status_on">代理：已开启</string>
+    <string name="proxy_status_off">代理：已关闭</string>
 </resources>

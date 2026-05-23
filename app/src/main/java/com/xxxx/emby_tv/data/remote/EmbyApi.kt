@@ -13,6 +13,7 @@ import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
 import com.xxxx.emby_tv.BuildConfig
+import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.data.model.AuthenticationResultDto
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.EmbyResponseDto
@@ -24,8 +25,9 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.ConnectException
 import java.net.SocketTimeoutException
-import com.google.net.cronet.okhttptransport.CronetTimeoutException
+import java.net.UnknownHostException
 
 /**
  * Emby API 接口定义
@@ -520,12 +522,46 @@ object EmbyApi {
                 gson.fromJson<JsonObject>(reader, JsonObject::class.java) ?: JsonObject()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "检查更新失败: ${e.message}")
+            when {
+                e is ConnectException || e.cause is ConnectException ||
+                e is UnknownHostException || e.cause is UnknownHostException -> {
+                    val prefs = com.xxxx.emby_tv.data.local.PreferencesManager(context)
+                    if (prefs.proxyEnabled) {
+                        Log.e(TAG, "检查更新失败（代理连接失败，请检查代理设置）: ${e.message}")
+                    } else {
+                        Log.e(TAG, "检查更新失败: ${e.message}")
+                    }
+                }
+                else -> Log.e(TAG, "检查更新失败: ${e.message}")
+            }
             JsonObject()
         }
     }
 
     // ==================== HTTP 辅助方法 ====================
+
+    private fun proxyHintException(context: Context, e: Exception): Exception {
+        val prefs = com.xxxx.emby_tv.data.local.PreferencesManager(context)
+        return if (prefs.proxyEnabled) {
+            Exception(context.getString(R.string.error_proxy_connection), e)
+        } else {
+            Exception(context.getString(R.string.error_server_unreachable), e)
+        }
+    }
+
+    private fun isConnectionError(e: Throwable): Boolean {
+        return e is ConnectException || e is UnknownHostException ||
+                e is java.net.SocketException ||
+                e.message?.let { msg ->
+                    msg.contains("SOCKS", ignoreCase = true) ||
+                    msg.contains("Connection refused", ignoreCase = true) ||
+                    msg.contains("Connection reset", ignoreCase = true) ||
+                    msg.contains("Malformed reply", ignoreCase = true) ||
+                    msg.contains("Proxy", ignoreCase = true) ||
+                    msg.contains("proxy", ignoreCase = true) ||
+                    msg.contains("failed to connect", ignoreCase = true)
+                } == true
+    }
 
     private suspend fun <T> httpStream(
         context: Context,
@@ -562,6 +598,9 @@ object EmbyApi {
                 val networkDuration = responseTime - startTime
 
                 if (!response.isSuccessful) {
+                    if (response.code == 407) {
+                        throw Exception(context.getString(R.string.error_proxy_connection))
+                    }
                     throw Exception("HTTP Error: ${response.code}")
                 }
 
@@ -581,40 +620,37 @@ object EmbyApi {
 
                     result
                 } catch (e: Exception) {
-                    // 捕获 JSON 解析过程中的异常（包括网络超时）
                     Log.e(TAG, "JSON 解析失败: $url", e)
-                    when {
-                        e is CronetTimeoutException ||
-                        e is SocketTimeoutException ||
-                        e.cause is CronetTimeoutException ||
-                        e.cause is SocketTimeoutException ||
-                        e.message?.contains("timeout", ignoreCase = true) == true ||
-                        e.cause?.javaClass?.simpleName?.contains("Timeout") == true -> {
-                            throw Exception("网络请求超时，请检查网络连接", e)
-                        }
-                        else -> {
-                            throw Exception("数据解析失败: ${e.message}", e)
-                        }
-                    }
+                    throw Exception(context.getString(R.string.error_network_error), e)
                 }
             }
-        } catch (e: Exception) {
-            // 捕获网络请求异常
+        } catch (e: Throwable) {
             Log.e(TAG, "网络请求失败: $url", e)
+            val prefs = com.xxxx.emby_tv.data.local.PreferencesManager(context)
+            val proxyOn = prefs.proxyEnabled && prefs.proxyHost.isNotEmpty()
             when {
-                e is CronetTimeoutException ||
-                e is SocketTimeoutException ||
-                e.cause is CronetTimeoutException ||
-                e.cause is SocketTimeoutException ||
-                e.message?.contains("timeout", ignoreCase = true) == true ||
-                e.cause?.javaClass?.simpleName?.contains("Timeout") == true -> {
-                    throw Exception("网络请求超时，请检查网络连接", e)
+                e.message?.contains(context.getString(R.string.error_proxy_connection)) == true -> {
+                    throw e as Exception
+                }
+                isConnectionError(e) || isConnectionError(e.cause ?: Exception()) -> {
+                    throw proxyHintException(context, e as Exception)
+                }
+                proxyOn && (e is SocketTimeoutException || e.cause is SocketTimeoutException ||
+                    e.message?.contains("timeout", ignoreCase = true) == true) -> {
+                    throw proxyHintException(context, e as Exception)
+                }
+                e is SocketTimeoutException || e.cause is SocketTimeoutException ||
+                e.message?.contains("timeout", ignoreCase = true) == true -> {
+                    throw Exception(context.getString(R.string.error_connection_timeout), e)
                 }
                 e.message?.contains("HTTP Error") == true -> {
-                    throw e // 重新抛出 HTTP 错误
+                    throw e as Exception
+                }
+                proxyOn -> {
+                    throw proxyHintException(context, e as Exception)
                 }
                 else -> {
-                    throw Exception("网络请求失败: ${e.message}", e)
+                    throw Exception(context.getString(R.string.error_network_error), e)
                 }
             }
         }

@@ -6,8 +6,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.xxxx.emby_tv.data.local.PreferencesManager
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.session.AccountInfo
+import com.xxxx.emby_tv.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -75,7 +77,15 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     isLoading = false
-                    errorMessage = e.message ?: "登录失败"
+                    val prefs = PreferencesManager(getApplication())
+                    val msg = e.message ?: getApplication<Application>().getString(R.string.error_network_error)
+                    errorMessage = if (prefs.proxyEnabled && !msg.contains(
+                            getApplication<Application>().getString(R.string.error_proxy_connection)
+                    )) {
+                        "${msg} (${getApplication<Application>().getString(R.string.error_proxy_connection)})"
+                    } else {
+                        msg
+                    }
                     onError(errorMessage!!)
                 }
             }

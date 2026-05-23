@@ -574,9 +574,8 @@ fun PlayerScreen(
 
             videoUrl = if (path != null) "${serverUrl}/emby$path" else null
             hasReportedPlaying = false
-        } catch (e: Exception) {
-            ErrorHandler.logError("PlayerScreen", "操作失败", e)
-
+        } catch (e: Throwable) {
+            Log.e("PlayerScreen", "加载播放信息失败", e)
         }
     }
 
@@ -934,6 +933,21 @@ fun PlayerScreen(
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("PlayerScreen", "播放器错误: ${error.message}", error)
+                val causeMsg = error.cause?.message ?: ""
+                if (causeMsg.contains("SOCKS", ignoreCase = true) ||
+                    causeMsg.contains("Proxy", ignoreCase = true) ||
+                    causeMsg.contains("Connection refused", ignoreCase = true) ||
+                    causeMsg.contains("Malformed reply", ignoreCase = true)
+                ) {
+                    scope.launch {
+                        android.widget.Toast.makeText(
+                            context,
+                            context.getString(R.string.error_proxy_connection),
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return
+                }
                 fallbackToServerTranscode()
             }
         }

@@ -149,6 +149,7 @@
     <string name="error_ssl_failed">Secure connection failed</string>
     <string name="error_network_error">Network error, please try again</string>
     <string name="error_unknown">Unknown error</string>
+    <string name="error_proxy_connection">Proxy connection failed, please check proxy information</string>
 
     <!-- Intro Skip -->
     <string name="skip_intro">Skip Intro</string>
@@ -205,4 +206,24 @@
     <string name="reset_default">Reset to Default</string>
     <string name="seconds">%1$ds</string>
     <string name="mega_bytes">%1$dMB</string>
+
+    <!-- Proxy Settings -->
+    <string name="proxy_settings">Proxy Settings</string>
+    <string name="proxy_enable">Enable Proxy</string>
+    <string name="proxy_disable">Disable Proxy</string>
+    <string name="proxy_type">Proxy Type</string>
+    <string name="proxy_type_http">HTTP</string>
+    <string name="proxy_type_socks5">SOCKS5</string>
+    <string name="proxy_host">Proxy Host</string>
+    <string name="proxy_port">Proxy Port</string>
+    <string name="proxy_username">Username</string>
+    <string name="proxy_password">Password</string>
+    <string name="proxy_optional">optional</string>
+    <string name="proxy_only_emby">Proxy for Emby service only</string>
+    <string name="proxy_indicator">PROXY</string>
+    <string name="proxy_save">Save</string>
+    <string name="proxy_saved">Proxy settings saved</string>
+    <string name="proxy_scan_hint">Scan QR code to configure proxy</string>
+    <string name="proxy_status_on">Proxy: ON</string>
+    <string name="proxy_status_off">Proxy: OFF</string>
 </resources>

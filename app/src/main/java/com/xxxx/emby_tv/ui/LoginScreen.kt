@@ -73,7 +73,6 @@ fun LoginScreen(
     val initialParsed = remember { parseServerUrl(loginViewModel.savedServerUrl ?: "") }
 
     // 从 ViewModel 获取保存的值
-    var serverUrl by remember { mutableStateOf(loginViewModel.savedServerUrl) }
     var protocol by remember { mutableStateOf(initialParsed.first) }
     var host by remember { mutableStateOf(initialParsed.second) }
     var port by remember { mutableStateOf(initialParsed.third) }
@@ -163,7 +162,7 @@ fun LoginScreen(
 
     fun onLoginClick(){
         val builtServerUrl = buildServerUrl(protocol, host, port)
-        serverUrl = builtServerUrl
+
         loginViewModel.login(
             serverUrl = builtServerUrl,
             username = username,
@@ -175,7 +174,7 @@ fun LoginScreen(
                 scope.launch {
                     android.widget.Toast.makeText(
                         context.applicationContext,
-                        failText,
+                        error,
                         android.widget.Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -370,6 +369,30 @@ fun LoginScreen(
                         }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Surface(
+                    onClick = { navController.navigate("proxy_settings") },
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(100)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.Transparent,
+                        focusedContainerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = Color.White.copy(alpha = 0.5f),
+                        focusedContentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth(0.8f)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.proxy_settings),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
             }
         }
     }
@@ -389,6 +412,10 @@ fun LoginScreen(
             },
             onThemeChange = { themeColor ->
                 mainViewModel.saveThemeId(themeColor.id)
+            },
+            onProxySettings = {
+                showMenu = false
+                navController.navigate("proxy_settings")
             },
             isShowLogout = false
         )

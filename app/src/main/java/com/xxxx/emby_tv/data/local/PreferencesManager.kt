@@ -27,6 +27,32 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_DISABLE_HEVC, false)
         set(value) = prefs.edit().putBoolean(KEY_DISABLE_HEVC, value).apply()
 
+    // === 代理设置 ===
+
+    var proxyEnabled: Boolean
+        get() = prefs.getBoolean(KEY_PROXY_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_PROXY_ENABLED, value).apply()
+
+    var proxyType: String
+        get() = prefs.getString(KEY_PROXY_TYPE, DEFAULT_PROXY_TYPE) ?: DEFAULT_PROXY_TYPE
+        set(value) = prefs.edit().putString(KEY_PROXY_TYPE, value).apply()
+
+    var proxyHost: String
+        get() = prefs.getString(KEY_PROXY_HOST, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PROXY_HOST, value).apply()
+
+    var proxyPort: Int
+        get() = prefs.getInt(KEY_PROXY_PORT, DEFAULT_PROXY_PORT)
+        set(value) = prefs.edit().putInt(KEY_PROXY_PORT, value).apply()
+
+    var proxyUsername: String
+        get() = prefs.getString(KEY_PROXY_USERNAME, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PROXY_USERNAME, value).apply()
+
+    var proxyPassword: String
+        get() = prefs.getString(KEY_PROXY_PASSWORD, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PROXY_PASSWORD, value).apply()
+
     // === 片头跳过设置 ===
 
     var autoSkipIntro: Boolean
@@ -135,13 +161,22 @@ class PreferencesManager(context: Context) {
         private const val KEY_DISABLE_HEVC = "disable_hevc"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
 
+        private const val KEY_PROXY_ENABLED = "proxy_enabled"
+        private const val KEY_PROXY_TYPE = "proxy_type"
+        private const val KEY_PROXY_HOST = "proxy_host"
+        private const val KEY_PROXY_PORT = "proxy_port"
+        private const val KEY_PROXY_USERNAME = "proxy_username"
+        private const val KEY_PROXY_PASSWORD = "proxy_password"
+
+        private const val DEFAULT_THEME_ID = "purple"
+        const val DEFAULT_PROXY_TYPE = "http"
+        const val DEFAULT_PROXY_PORT = 1080
+
         private const val KEY_MIN_BUFFER_MS = "min_buffer_ms"
         private const val KEY_MAX_BUFFER_MS = "max_buffer_ms"
         private const val KEY_PLAYBACK_BUFFER_MS = "playback_buffer_ms"
         private const val KEY_REBUFFER_MS = "rebuffer_ms"
         private const val KEY_BUFFER_SIZE_BYTES = "buffer_size_bytes"
-
-        private const val DEFAULT_THEME_ID = "purple"
 
         // 缓冲设置默认值
         const val DEFAULT_MIN_BUFFER_MS = 45_000

@@ -11,11 +11,12 @@ class LocalServer private constructor(
     port: Int,
     private val mode: Mode,
     private val onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
-    private val onSearchReceived: ((String) -> Unit)? = null
+    private val onSearchReceived: ((String) -> Unit)? = null,
+    private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null
 ) : NanoHTTPD(port) {
 
     enum class Mode {
-        LOGIN, SEARCH
+        LOGIN, SEARCH, PROXY
     }
 
     companion object {
@@ -40,6 +41,15 @@ class LocalServer private constructor(
             return startInternal(Mode.SEARCH, onSearchReceived = onSearchReceived)
         }
 
+        fun startProxyServer(
+            themePrimaryDark: Color,
+            themeSecondaryLight: Color,
+            onProxyConfigReceived: (Boolean, String, String, Int, String, String) -> Unit
+        ): LocalServer? {
+            updateThemeColors(themePrimaryDark, themeSecondaryLight)
+            return startInternal(Mode.PROXY, onProxyConfigReceived = onProxyConfigReceived)
+        }
+
         private fun updateThemeColors(primary: Color, secondary: Color) {
             val primaryArgb = primary.toArgb()
             val primaryRgb = AndroidColor.rgb(
@@ -60,12 +70,13 @@ class LocalServer private constructor(
         private fun startInternal(
             mode: Mode,
             onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
-            onSearchReceived: ((String) -> Unit)? = null
+            onSearchReceived: ((String) -> Unit)? = null,
+            onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null
         ): LocalServer? {
             var port = 4000
             while (port < 4010) {
                 try {
-                    val server = LocalServer(port, mode, onLoginConfigReceived, onSearchReceived)
+                    val server = LocalServer(port, mode, onLoginConfigReceived, onSearchReceived, onProxyConfigReceived)
                     server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return server
                 } catch (e: IOException) {
@@ -80,6 +91,7 @@ class LocalServer private constructor(
         return when (mode) {
             Mode.LOGIN -> serveLogin(session)
             Mode.SEARCH -> serveSearch(session)
+            Mode.PROXY -> serveProxy(session)
         }
     }
 
@@ -390,6 +402,170 @@ class LocalServer private constructor(
             </html>
         """.trimIndent()
         
+        return newFixedLengthResponse(html)
+    }
+
+    private fun serveProxy(session: IHTTPSession): Response {
+        if (session.method == Method.POST) {
+            try {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val params = session.parameters
+
+                val enabled = params["enabled"]?.firstOrNull() == "on"
+                val type = params["type"]?.firstOrNull() ?: "http"
+                val host = params["host"]?.firstOrNull() ?: ""
+                val portStr = params["port"]?.firstOrNull() ?: "1080"
+                val port = portStr.toIntOrNull() ?: 1080
+                val username = params["username"]?.firstOrNull() ?: ""
+                val password = params["password"]?.firstOrNull() ?: ""
+
+                onProxyConfigReceived?.invoke(enabled, type, host, port, username, password)
+                return serveSuccessPage("Configuration Sent!", "Proxy settings have been sent to your TV.", "配置已发送！", "代理设置已发送到电视。")
+            } catch (e: Exception) {
+                ErrorHandler.logError("LocalServer", "Error processing proxy config", e)
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error parsing request")
+            }
+        }
+
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Emby TV Proxy Settings</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta charset="UTF-8">
+                <style>
+                    :root { --theme-primary: $themePrimary; --theme-secondary: $themeSecondary; }
+                    body {
+                        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                        padding: 0; margin: 0;
+                        background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary));
+                        color: white;
+                        display: flex; justify-content: center; align-items: center;
+                        min-height: 100vh;
+                    }
+                    .container {
+                        background: rgba(0, 0, 0, 0.2);
+                        padding: 40px;
+                        border-radius: 16px;
+                        backdrop-filter: blur(10px);
+                        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+                        width: 90%; max-width: 420px;
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                    }
+                    h2 { text-align: center; margin-bottom: 30px; font-weight: 300; }
+                    .toggle-row {
+                        display: flex; align-items: center; justify-content: space-between;
+                        margin-bottom: 24px; padding: 12px 16px;
+                        background: rgba(0, 0, 0, 0.2); border-radius: 10px;
+                    }
+                    .toggle-row label { font-size: 16px; }
+                    .switch { position: relative; width: 52px; height: 28px; }
+                    .switch input { opacity: 0; width: 0; height: 0; }
+                    .slider {
+                        position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+                        background-color: rgba(255,255,255,0.2); border-radius: 28px; transition: .3s;
+                    }
+                    .slider:before {
+                        position: absolute; content: ""; height: 22px; width: 22px;
+                        left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: .3s;
+                    }
+                    input:checked + .slider { background-color: var(--theme-primary); }
+                    input:checked + .slider:before { transform: translateX(24px); }
+                    label { display: block; margin-bottom: 8px; font-size: 14px; color: #ccc; }
+                    .type-row {
+                        display: flex; gap: 8px; margin-bottom: 20px;
+                    }
+                    .type-btn {
+                        flex: 1; padding: 10px; text-align: center;
+                        background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255,255,255,0.15);
+                        border-radius: 8px; color: white; font-size: 15px; cursor: pointer; transition: .2s;
+                    }
+                    .type-btn.active { background: rgba(255,255,255,0.2); border-color: rgba(255,255,255,0.4); }
+                    .input-row {
+                        display: flex; gap: 8px; margin-bottom: 16px;
+                    }
+                    .input-row input {
+                        width: 100%; padding: 12px; box-sizing: border-box;
+                        background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2);
+                        border-radius: 8px; color: white; font-size: 16px;
+                    }
+                    .input-row input:focus { border-color: var(--theme-primary); outline: none; }
+                    .host { flex: 1; }
+                    .port { flex: 0 0 90px; }
+                    input {
+                        width: 100%; padding: 12px; margin-bottom: 16px; box-sizing: border-box;
+                        background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.2);
+                        border-radius: 8px; color: white; font-size: 16px;
+                    }
+                    input::placeholder { color: rgba(255,255,255,0.4); }
+                    input:focus { border-color: var(--theme-primary); outline: none; }
+                    .scope-text { 
+                        text-align: center; color: rgba(255,255,255,0.5); 
+                        font-size: 13px; margin-bottom: 24px; 
+                    }
+                    button {
+                        width: 100%; padding: 14px;
+                        background: white; color: black;
+                        border: none; border-radius: 8px;
+                        font-size: 16px; font-weight: bold; cursor: pointer;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h2 id="form-title">Proxy Settings</h2>
+                    <form method="POST" id="proxy-form">
+                        <input type="hidden" name="enabled" id="input-enabled" value="off">
+                        <input type="hidden" name="type" id="input-type" value="http">
+                        <div class="toggle-row">
+                            <label id="label-enable">Enable Proxy</label>
+                            <label class="switch">
+                                <input type="checkbox" id="toggle-enable" onchange="document.getElementById('input-enabled').value=this.checked?'on':'off'">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <label id="label-type">Proxy Type</label>
+                        <div class="type-row">
+                            <div class="type-btn active" id="btn-http" onclick="setType('http')">HTTP</div>
+                            <div class="type-btn" id="btn-socks5" onclick="setType('socks5')">SOCKS5</div>
+                        </div>
+                        <label id="label-host">Proxy Host</label>
+                        <div class="input-row">
+                            <input type="text" name="host" class="host" id="input-host" placeholder="192.168.1.x">
+                            <input type="text" name="port" class="port" id="input-port" placeholder="Port" value="1080">
+                        </div>
+                        <label id="label-user">Username (optional)</label>
+                        <input type="text" name="username" id="input-username" placeholder="">
+                        <label id="label-pass">Password (optional)</label>
+                        <input type="password" name="password" id="input-password" placeholder="">
+                        <div class="scope-text" id="scope-text">Proxy for Emby service only</div>
+                        <button type="submit" id="btn-submit">Send to TV</button>
+                    </form>
+                </div>
+                <script>
+                    function setType(t) {
+                        document.getElementById('input-type').value = t;
+                        document.getElementById('btn-http').className = 'type-btn' + (t==='http'?' active':'');
+                        document.getElementById('btn-socks5').className = 'type-btn' + (t==='socks5'?' active':'');
+                    }
+                    if (navigator.language.startsWith('zh')) {
+                        document.getElementById('form-title').innerText = '代理设置';
+                        document.getElementById('label-enable').innerText = '启用代理';
+                        document.getElementById('label-type').innerText = '代理类型';
+                        document.getElementById('label-host').innerText = '代理地址';
+                        document.getElementById('input-host').placeholder = '代理服务器地址';
+                        document.getElementById('input-port').placeholder = '端口';
+                        document.getElementById('label-user').innerText = '用户名（可选）';
+                        document.getElementById('label-pass').innerText = '密码（可选）';
+                        document.getElementById('scope-text').innerText = '仅代理Emby服务';
+                        document.getElementById('btn-submit').innerText = '发送到电视';
+                    }
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
         return newFixedLengthResponse(html)
     }
 

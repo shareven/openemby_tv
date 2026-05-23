@@ -28,6 +28,7 @@ import com.xxxx.emby_tv.ui.AccountScreen
 import com.xxxx.emby_tv.ui.MediaDetailScreen
 import com.xxxx.emby_tv.ui.HomeScreen
 import com.xxxx.emby_tv.ui.UpdateScreen
+import com.xxxx.emby_tv.ui.ProxySettingsScreen
 import com.xxxx.emby_tv.ui.SearchScreen
 import com.xxxx.emby_tv.ui.components.BuildGradientBackground
 import com.xxxx.emby_tv.ui.components.Loading
@@ -184,6 +185,14 @@ fun EmbyTvApp() {
                                 // 退出当前账号，进入登录页面添加新账号
                                 mainViewModel.logout()
                             }
+                        )
+                    }
+
+                    // 代理设置页面
+                    composable("proxy_settings") {
+                        ProxySettingsScreen(
+                            mainViewModel = mainViewModel,
+                            onBack = { navController.popBackStack() }
                         )
                     }
 

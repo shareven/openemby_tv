@@ -26,9 +26,9 @@ android {
         applicationId = "com.xxxx.emby_tv"
         minSdk = 23
         targetSdk = 36
-        versionName = "2.0.12"
-       versionCode = 212
-        //  versionCode = 77
+        versionName = "2.0.13"
+       versionCode = 213
+        //  versionCode = 86
 
     }
 
@@ -100,9 +100,8 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.0.4")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.0.4")
 
-    // Cronet
-    implementation("org.chromium.net:cronet-embedded:143.7445.0")
-    implementation("com.google.net.cronet:cronet-okhttp:0.1.0")
+    // Brotli compression support
+    implementation("com.squareup.okhttp3:okhttp-brotli:5.0.0-alpha.14")
 
     // App Update
     implementation("io.github.azhon:appupdate:4.3.6")
