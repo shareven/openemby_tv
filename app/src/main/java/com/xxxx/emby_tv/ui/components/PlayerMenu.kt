@@ -459,6 +459,7 @@ fun EpisodesTab(
                 modifier = Modifier,
                 isMyLibrary = false,
                 isShowOverview = false,
+                isPlaying = isCurrent,
                 serverUrl = serverUrl,
                 onItemClick = {
                     if (!isCurrent) {

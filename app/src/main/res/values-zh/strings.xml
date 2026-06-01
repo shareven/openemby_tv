@@ -226,4 +226,5 @@
     <string name="proxy_scan_hint">扫码配置代理信息</string>
     <string name="proxy_status_on">代理：已开启</string>
     <string name="proxy_status_off">代理：已关闭</string>
+    <string name="playing">播放中</string>
 </resources>

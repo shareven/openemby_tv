@@ -32,6 +32,7 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -42,6 +43,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 
+import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.Utils
 import com.xxxx.emby_tv.data.model.BaseItemDto
 
@@ -56,7 +58,8 @@ fun BuildItem(
     isShowImg17: Boolean = false,
     isShowOverview: Boolean = false,
     serverUrl: String, // 直接接受 serverUrl 而不是 AppModel
-    accountName: String? = null, // 显示账号名称 (Username@Domain)
+    accountName: String? = null,
+    isPlaying: Boolean = false,
     onItemClick: () -> Unit,
     onMenuClick: (() -> Unit)? = null,
 ) {
@@ -163,6 +166,24 @@ fun BuildItem(
                             color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                if (isPlaying) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(4.dp)
+                            .background(primaryColor, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.playing),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            )
                         )
                     }
                 }

@@ -226,4 +226,5 @@
     <string name="proxy_scan_hint">Scan QR code to configure proxy</string>
     <string name="proxy_status_on">Proxy: ON</string>
     <string name="proxy_status_off">Proxy: OFF</string>
+    <string name="playing">Playing</string>
 </resources>
