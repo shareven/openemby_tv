@@ -227,4 +227,26 @@
     <string name="proxy_status_on">Proxy: ON</string>
     <string name="proxy_status_off">Proxy: OFF</string>
     <string name="playing">Playing</string>
+
+    <string name="sort">Sort</string>
+    <string name="sort_name">Name</string>
+    <string name="sort_premiere_date">Premiere Date</string>
+    <string name="sort_date_added">Date Added</string>
+    <string name="sort_date_modified">Date Modified</string>
+    <string name="sort_date_last_saved">Date Last Saved</string>
+    <string name="sort_rating">Critic Rating</string>
+    <string name="sort_community_rating">Community Rating</string>
+    <string name="sort_random">Random</string>
+    <string name="sort_runtime">Runtime</string>
+    <string name="sort_date_played">Date Played</string>
+    <string name="sort_year">Year</string>
+    <string name="sort_official_rating">Parental Rating</string>
+    <string name="sort_studio">Studio</string>
+    <string name="sort_resolution">Resolution</string>
+    <string name="sort_framerate">Frame Rate</string>
+
+    <string name="filter_all">All</string>
+    <string name="filter_watched">Watched</string>
+    <string name="filter_unwatched">Unwatched</string>
+    <string name="filter_favorite">Favorite</string>
 </resources>

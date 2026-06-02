@@ -227,4 +227,26 @@
     <string name="proxy_status_on">代理：已开启</string>
     <string name="proxy_status_off">代理：已关闭</string>
     <string name="playing">播放中</string>
+
+    <string name="sort">排序</string>
+    <string name="sort_name">名称</string>
+    <string name="sort_premiere_date">上映日期</string>
+    <string name="sort_date_added">添加日期</string>
+    <string name="sort_date_modified">修改日期</string>
+    <string name="sort_date_last_saved">最后保存日期</string>
+    <string name="sort_rating">评论评分</string>
+    <string name="sort_community_rating">社区评分</string>
+    <string name="sort_random">随机</string>
+    <string name="sort_runtime">时长</string>
+    <string name="sort_date_played">播放日期</string>
+    <string name="sort_year">年份</string>
+    <string name="sort_official_rating">分级</string>
+    <string name="sort_studio">制作公司</string>
+    <string name="sort_resolution">分辨率</string>
+    <string name="sort_framerate">帧率</string>
+
+    <string name="filter_all">全部</string>
+    <string name="filter_watched">已观看</string>
+    <string name="filter_unwatched">未观看</string>
+    <string name="filter_favorite">收藏</string>
 </resources>

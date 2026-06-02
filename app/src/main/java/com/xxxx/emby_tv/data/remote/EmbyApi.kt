@@ -119,11 +119,15 @@ object EmbyApi {
         parentId: String,
         type: String,
         startIndex: Int = 0,
-        limit: Int = 20
+        limit: Int = 20,
+        sortBy: String = "SortName",
+        sortOrder: String = "Ascending",
+        filters: String? = null
     ): Pair<List<BaseItemDto>, Int> {
         val url = "/Users/$userId/Items?IncludeItemTypes=$type" +
                 "&Fields=BasicSyncInfo,PrimaryImageAspectRatio,ProductionYear,Status,EndDate" +
-                "&StartIndex=$startIndex&SortBy=SortName&SortOrder=Ascending&ParentId=$parentId" +
+                "&StartIndex=$startIndex&SortBy=$sortBy&SortOrder=$sortOrder&ParentId=$parentId" +
+                (filters?.let { "&Filters=$it" } ?: "") +
                 "&EnableImageTypes=Primary,Backdrop,Thumb&ImageTypeLimit=1&Recursive=true&Limit=$limit" +
                 "&X-Emby-Token=$apiKey"
         return httpAsBaseItemDtoListWithTotal(context, serverUrl, apiKey, deviceId, url)
@@ -804,7 +808,7 @@ object EmbyApi {
                     add(JsonObject().apply {
                         addProperty("Container", "ts")
                         addProperty("Type", "Video")
-                        addProperty("AudioCodec", supportedAudio)
+                        addProperty("AudioCodec", "aac,ac3,eac3,mp3")
                         addProperty("VideoCodec", if (actualDisableHevc) "h264" else supportedVideo)
                         addProperty("Context", "Streaming")
                         addProperty("Protocol", "hls")
