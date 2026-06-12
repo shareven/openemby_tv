@@ -345,7 +345,7 @@ class LocalServer private constructor(
                         <label id="label-user">Username</label>
                         <input type="text" name="username" id="input-username" placeholder="Username" required>
                         <label id="label-pass">Password</label>
-                        <input type="password" name="password" id="input-password" placeholder="Password" required>
+                        <input type="password" name="password" id="input-password" placeholder="Password">
                         <button type="submit" id="btn-submit">Send to TV</button>
                     </form>
                 </div>
