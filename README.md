@@ -71,7 +71,7 @@
 <img src="img-show/show1.png" alt="home screen" width="500px" />
 
 ### 🎨 主题色选择 / Theme Colors
-<img src="img-show/show2.png" alt="theme color" width="500px" />
+<img src="img-show/show3.png" alt="theme color" width="500px" />
 
 ---
 
