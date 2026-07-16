@@ -165,6 +165,9 @@ fun PlayerScreen(
     var rebufferMs by remember(preferencesManager.rebufferMs) { mutableIntStateOf(preferencesManager.rebufferMs) }
     var bufferSizeBytes by remember(preferencesManager.bufferSizeBytes) { mutableIntStateOf(preferencesManager.bufferSizeBytes) }
 
+    // 倍速设置 - 从 PreferencesManager 加载保存的值
+    var playbackSpeed by remember(preferencesManager.playbackSpeed) { mutableFloatStateOf(preferencesManager.playbackSpeed) }
+
     // 收集设备支持的杜比视界profile
     val supportedDvProfiles by playerViewModel.supportedDvProfiles.collectAsState()
 
@@ -360,6 +363,11 @@ fun PlayerScreen(
         onDispose {
             view.keepScreenOn = previous
         }
+    }
+
+    // 应用倍速
+    LaunchedEffect(playbackSpeed) {
+        player.setPlaybackSpeed(playbackSpeed)
     }
 
     LaunchedEffect(leftKeyDownTime) {
@@ -702,7 +710,8 @@ fun PlayerScreen(
                     media = media,
                     position = position,
                     selectedSubtitleIndex = selectedSubtitleIndex,
-                    selectedAudioIndex = selectedAudioIndex
+                    selectedAudioIndex = selectedAudioIndex,
+                    playbackRate = playbackSpeed
                 )
                 hasReportedPlaying = true
             } catch (e: Exception) {
@@ -913,7 +922,8 @@ fun PlayerScreen(
                                 media = media,
                                 position = position,
                                 selectedSubtitleIndex = selectedSubtitleIndex,
-                                selectedAudioIndex = selectedAudioIndex
+                                selectedAudioIndex = selectedAudioIndex,
+                                playbackRate = playbackSpeed
                             )
 
                         }
@@ -924,7 +934,8 @@ fun PlayerScreen(
                             media = media,
                             position = position,
                             selectedSubtitleIndex = selectedSubtitleIndex,
-                            selectedAudioIndex = selectedAudioIndex
+                            selectedAudioIndex = selectedAudioIndex,
+                            playbackRate = playbackSpeed
                         )
 
                     }
@@ -980,7 +991,8 @@ fun PlayerScreen(
                 media = media,
                 position = position,
                 selectedSubtitleIndex = selectedSubtitleIndex,
-                selectedAudioIndex = selectedAudioIndex
+                selectedAudioIndex = selectedAudioIndex,
+                playbackRate = playbackSpeed
             )
             player.stop()
             player.removeListener(listener)
@@ -1137,7 +1149,8 @@ fun PlayerScreen(
                     isBuffering = isBuffering,
                     downloadSpeed = downloadSpeed,
                     supportedDvProfiles = supportedDvProfiles,
-                    currentVideoDecoderName = currentVideoDecoderName
+                    currentVideoDecoderName = currentVideoDecoderName,
+                    playbackSpeed = playbackSpeed
                 )
 
             }
@@ -1339,6 +1352,11 @@ fun PlayerScreen(
                         rebufferMs = defaults.rebufferMs
                         bufferSizeBytes = defaults.bufferSizeBytes
                         preferencesManager.resetBufferDefaults()
+                    },
+                    playbackSpeed = playbackSpeed,
+                    onPlaybackSpeedChange = {
+                        playbackSpeed = it
+                        preferencesManager.playbackSpeed = it
                     },
                     isFavorite = isFavorite,
                     onToggleFavorite = {

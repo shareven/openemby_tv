@@ -69,12 +69,17 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_SKIP_INTRO, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_SKIP_INTRO, value).apply()
 
+    // === 倍速设置 ===
+
+    var playbackSpeed: Float
+        get() = prefs.getFloat(KEY_PLAYBACK_SPEED, DEFAULT_PLAYBACK_SPEED)
+        set(value) = prefs.edit().putFloat(KEY_PLAYBACK_SPEED, value).apply()
+
     // === 缓冲设置 ===
 
     var minBufferMs: Int
         get() = prefs.getInt(KEY_MIN_BUFFER_MS, DEFAULT_MIN_BUFFER_MS)
         set(value) = prefs.edit().putInt(KEY_MIN_BUFFER_MS, value).apply()
-
     var maxBufferMs: Int
         get() = prefs.getInt(KEY_MAX_BUFFER_MS, DEFAULT_MAX_BUFFER_MS)
         set(value) = prefs.edit().putInt(KEY_MAX_BUFFER_MS, value).apply()
@@ -173,6 +178,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_PREFER_DIRECT_PLAY = "prefer_direct_play"
         private const val KEY_DISABLE_HEVC = "disable_hevc"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
+        private const val KEY_PLAYBACK_SPEED = "playback_speed"
 
         private const val KEY_PROXY_ENABLED = "proxy_enabled"
         private const val KEY_PROXY_TYPE = "proxy_type"
@@ -192,6 +198,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_BUFFER_SIZE_BYTES = "buffer_size_bytes"
 
         // 缓冲设置默认值
+        const val DEFAULT_PLAYBACK_SPEED = 1.0f
         const val DEFAULT_MIN_BUFFER_MS = 45_000
         const val DEFAULT_MAX_BUFFER_MS = 120_000
         const val DEFAULT_PLAYBACK_BUFFER_MS = 3_000

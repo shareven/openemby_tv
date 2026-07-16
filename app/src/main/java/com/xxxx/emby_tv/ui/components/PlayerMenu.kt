@@ -75,7 +75,9 @@ fun PlayerMenu(
     onRebufferMsChange: (Int) -> Unit = {},
     bufferSizeBytes: Int = 134_217_728,
     onBufferSizeBytesChange: (Int) -> Unit = {},
-    onResetBufferDefaults: () -> Unit = {}
+    onResetBufferDefaults: () -> Unit = {},
+    playbackSpeed: Float = 1.0f,
+    onPlaybackSpeedChange: (Float) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -87,6 +89,7 @@ fun PlayerMenu(
         val list = mutableListOf<String>()
         if (isSeries) list.add("Episodes") // 0 (if present)
         list.add("Info") // 0 or 1
+        list.add("Speed") // 倍速
         list.add("Subtitles") // 2 or 1
         list.add("Audio") // 3 or 2
         if (isSeries) list.add("Mode")
@@ -138,6 +141,7 @@ fun PlayerMenu(
                             val displayTitle = when (title) {
                                 "Info" -> stringResource(R.string.info)
                                 "Episodes" -> stringResource(R.string.episodes)
+                                "Speed" -> stringResource(R.string.playback_speed)
                                 "Subtitles" -> stringResource(R.string.subtitles)
                                 "Audio" -> stringResource(R.string.audio_label)
                                 "Mode" -> stringResource(R.string.play_mode)
@@ -199,6 +203,7 @@ fun PlayerMenu(
                             )
 
                             "Audio" -> AudioTab(audioTracks, selectedAudioIndex, onAudioSelect)
+                            "Speed" -> SpeedTab(playbackSpeed, onPlaybackSpeedChange)
                             "Mode" -> PlayModeTab(playMode, onPlayModeChange)
                             "Correction" -> PlaybackCorrectionTab(
                                 playbackCorrection,
@@ -603,13 +608,58 @@ fun AudioTab(tracks: List<MediaStreamDto>, selectedIndex: Int, onSelect: (Int) -
 }
 
 @Composable
+fun SpeedTab(currentSpeed: Float, onChange: (Float) -> Unit) {
+    val speeds = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f)
+    val normalLabel = stringResource(R.string.speed_normal)
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        items(speeds) { speed ->
+            val isSelected = currentSpeed == speed
+            val label = if (speed == 1.0f) "1.0x ($normalLabel)" else "${speed}x"
+            Surface(
+                onClick = { onChange(speed) },
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+                    containerColor = if (isSelected) TvMaterialTheme.colorScheme.surfaceVariant.copy(
+                        alpha = 0.5f
+                    ) else Color.Transparent,
+                    contentColor = TvMaterialTheme.colorScheme.onSurface
+                ),
+                scale = ClickableSurfaceDefaults.scale(
+                    focusedScale = 1.03f,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(label)
+                    if (isSelected) Icon(
+                        Icons.Default.Check,
+                        null,
+                        tint = LocalContentColor.current
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun PlaybackCorrectionTab(current: Int, onChange: (Int) -> Unit) {
-    Column(modifier = Modifier.padding(horizontal = 150.dp)) {
-        val options = listOf(
-            0 to stringResource(R.string.off_default),
-            1 to stringResource(R.string.playback_correction_server)
-        )
-        options.forEach { (value, label) ->
+    val options = listOf(
+        0 to stringResource(R.string.off_default),
+        1 to stringResource(R.string.playback_correction_server)
+    )
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        items(options) { (value, label) ->
             val isSelected = current == value
             Surface(
                 onClick = { onChange(value) },
@@ -650,13 +700,13 @@ fun PlaybackCorrectionTab(current: Int, onChange: (Int) -> Unit) {
 
 @Composable
 fun PlayModeTab(current: Int, onChange: (Int) -> Unit) {
-    Column(modifier = Modifier.padding(horizontal = 150.dp)) {
-        val modes = listOf(
-            stringResource(R.string.loop_list),
-            stringResource(R.string.loop_single),
-            stringResource(R.string.loop_off)
-        )
-        modes.forEachIndexed { index, title ->
+    val modes = listOf(
+        stringResource(R.string.loop_list),
+        stringResource(R.string.loop_single),
+        stringResource(R.string.loop_off)
+    )
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        itemsIndexed(modes) { index, title ->
             val isSelected = current == index
             Surface(
                 onClick = { onChange(index) },
@@ -700,12 +750,12 @@ fun IntroSkipTab(
     autoSkipIntro: Boolean,
     onAutoSkipIntroChange: (Boolean) -> Unit
 ) {
-    Column(modifier = Modifier.padding(horizontal = 150.dp)) {
-        val options = listOf(
-            false to stringResource(R.string.manual_skip_intro),
-            true to stringResource(R.string.auto_skip_intro)
-        )
-        options.forEach { (value, label) ->
+    val options = listOf(
+        false to stringResource(R.string.manual_skip_intro),
+        true to stringResource(R.string.auto_skip_intro)
+    )
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        items(options) { (value, label) ->
             val isSelected = autoSkipIntro == value
             Surface(
                 onClick = { onAutoSkipIntroChange(value) },

@@ -181,6 +181,10 @@
     <string name="latest_version">Latest version: %1$s</string>
     <string name="update_log">Update log:</string>
 
+    <!-- Playback Speed -->
+    <string name="playback_speed">Playback Speed</string>
+    <string name="speed_normal">Normal</string>
+
     <!-- Buffer Settings -->
     <string name="buffer_settings">Buffer Settings</string>
     <string name="min_buffer">Min Buffer</string>

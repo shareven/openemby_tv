@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ArrowForward
@@ -87,6 +88,7 @@ fun PlayerOverlay(
     downloadSpeed: Long = 0,
     supportedDvProfiles: List<DvProfileInfo> = emptyList(),
     currentVideoDecoderName: String,
+    playbackSpeed: Float = 1.0f,
 ) {
     Box(
         modifier = Modifier
@@ -94,6 +96,20 @@ fun PlayerOverlay(
             .background(Color.Black.copy(alpha = 0.5f))
             .padding(16.dp)
     ) {
+        // 倍速角标（仅 != 1.0x 时显示）
+        if (playbackSpeed != 1.0f) {
+            Text(
+                text = String.format("%.2fx", playbackSpeed),
+                color = Color.White,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+            )
+        }
+
         // Top Info
         Column(modifier = Modifier.align(Alignment.TopStart)) {
             val parentIndex = mediaInfo.parentIndexNumber

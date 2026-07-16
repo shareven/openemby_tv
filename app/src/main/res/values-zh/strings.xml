@@ -181,6 +181,10 @@
     <string name="latest_version">最新版本: %1$s</string>
     <string name="update_log">更新日志:</string>
 
+    <!-- Playback Speed -->
+    <string name="playback_speed">播放速度</string>
+    <string name="speed_normal">正常</string>
+
     <!-- Buffer Settings -->
     <string name="buffer_settings">缓冲设置</string>
     <string name="min_buffer">最小缓冲</string>

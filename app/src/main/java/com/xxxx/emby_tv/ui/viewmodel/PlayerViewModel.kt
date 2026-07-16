@@ -152,11 +152,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         media: MediaDto,
         position: Long,
         selectedSubtitleIndex: Int,
-        selectedAudioIndex: Int
+        selectedAudioIndex: Int,
+        playbackRate: Float = 1.0f
     ) {
         viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             try {
-                val body = buildPlayingBody(mediaId, media, position, selectedSubtitleIndex, selectedAudioIndex)
+                val body = buildPlayingBody(mediaId, media, position, selectedSubtitleIndex, selectedAudioIndex, playbackRate)
                 repository.playing(body)
             } catch (e: Exception) {
                 ErrorHandler.logError("PlayerViewModel", "操作失败", e)
@@ -194,12 +195,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         media: MediaDto,
         position: Long,
         selectedSubtitleIndex: Int,
-        selectedAudioIndex: Int
+        selectedAudioIndex: Int,
+        playbackRate: Float = 1.0f
     ) {
         Log.e("reportStopped position", position.toString())
         viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             try {
-                val body = buildStoppedBody(mediaId, media, position, selectedSubtitleIndex, selectedAudioIndex)
+                val body = buildStoppedBody(mediaId, media, position, selectedSubtitleIndex, selectedAudioIndex, playbackRate)
                 repository.stopped(body)
 
                 // 停止活动编码
@@ -266,7 +268,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         media: MediaDto,
         position: Long,
         selectedSubtitleIndex: Int,
-        selectedAudioIndex: Int
+        selectedAudioIndex: Int,
+        playbackRate: Float = 1.0f
     ): Map<String, Any?> {
         val ticks = position * 10000
         val playMethod = Utils.determinePlayMethod(media)
@@ -282,7 +285,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             "RepeatMode" to "RepeatNone",
             "Shuffle" to false,
             "SubtitleOffset" to 0,
-            "PlaybackRate" to 1,
+            "PlaybackRate" to playbackRate,
             "MaxStreamingBitrate" to 200000000,
             "PositionTicks" to ticks,
             "PlaybackStartTimeTicks" to System.currentTimeMillis() * 10000,
@@ -342,7 +345,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         media: MediaDto,
         position: Long,
         selectedSubtitleIndex: Int,
-        selectedAudioIndex: Int
+        selectedAudioIndex: Int,
+        playbackRate: Float = 1.0f
     ): Map<String, Any?> {
         val ticks = position * 10000
         val playMethod = Utils.determinePlayMethod(media)
@@ -358,7 +362,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             "RepeatMode" to "RepeatNone",
             "Shuffle" to false,
             "SubtitleOffset" to 0,
-            "PlaybackRate" to 1,
+            "PlaybackRate" to playbackRate,
             "MaxStreamingBitrate" to 200000000,
             "PositionTicks" to ticks,
             "PlaybackStartTimeTicks" to System.currentTimeMillis() * 10000,
