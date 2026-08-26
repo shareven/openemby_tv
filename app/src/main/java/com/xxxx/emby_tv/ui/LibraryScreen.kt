@@ -32,7 +32,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.*
 import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.data.repository.EmbyRepository
-import kotlinx.coroutines.delay
 import com.xxxx.emby_tv.ui.components.Loading
 import com.xxxx.emby_tv.ui.components.NoData
 import com.xxxx.emby_tv.ui.viewmodel.LibraryViewModel
@@ -85,9 +84,12 @@ fun LibraryScreen(
                 firstItemFocusRequester.requestFocus()
                 isInitialScrollDone = true
             } else if (shouldFocusOnReturn && returnFocusIndex >= 0) {
-                delay(50)
-                returnFocusRequester.requestFocus()
                 shouldFocusOnReturn = false
+                if (returnFocusIndex < libraryItems.size) {
+                    gridState.scrollToItem(returnFocusIndex)
+                    withFrameNanos { }
+                    returnFocusRequester.requestFocus()
+                }
             }
         }
     }
