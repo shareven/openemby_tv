@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -31,6 +32,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.*
 import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.data.repository.EmbyRepository
+import kotlinx.coroutines.delay
 import com.xxxx.emby_tv.ui.components.Loading
 import com.xxxx.emby_tv.ui.components.NoData
 import com.xxxx.emby_tv.ui.viewmodel.LibraryViewModel
@@ -47,7 +49,10 @@ fun LibraryScreen(
     val context = LocalContext.current
     val firstItemFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
-    var isInitialScrollDone by remember(parentId) { mutableStateOf(false) }
+    var isInitialScrollDone by rememberSaveable { mutableStateOf(false) }
+    var returnFocusIndex by rememberSaveable { mutableIntStateOf(-1) }
+    var shouldFocusOnReturn by rememberSaveable { mutableStateOf(false) }
+    val returnFocusRequester = remember { FocusRequester() }
 
     val repository = remember { EmbyRepository.getInstance(context) }
     val serverUrl = repository.serverUrl ?: ""
@@ -74,10 +79,16 @@ fun LibraryScreen(
     }
 
     LaunchedEffect(libraryItems) {
-        if (libraryItems != null && libraryItems.isNotEmpty() && !isInitialScrollDone) {
-            gridState.scrollToItem(0)
-            firstItemFocusRequester.requestFocus()
-            isInitialScrollDone = true
+        if (libraryItems != null && libraryItems.isNotEmpty()) {
+            if (!isInitialScrollDone) {
+                gridState.scrollToItem(0)
+                firstItemFocusRequester.requestFocus()
+                isInitialScrollDone = true
+            } else if (shouldFocusOnReturn && returnFocusIndex >= 0) {
+                delay(50)
+                returnFocusRequester.requestFocus()
+                shouldFocusOnReturn = false
+            }
         }
     }
 
@@ -257,12 +268,14 @@ fun LibraryScreen(
                     val item = items[index]
                     val id = item.id ?: ""
                     if (id.isNotEmpty()) {
-                        val itemModifier = if (index == 0) {
-                            Modifier
+                        val itemModifier = when {
+                            index == returnFocusIndex -> Modifier
+                                .fillMaxWidth()
+                                .focusRequester(returnFocusRequester)
+                            index == 0 -> Modifier
                                 .fillMaxWidth()
                                 .focusRequester(firstItemFocusRequester)
-                        } else {
-                            Modifier.fillMaxWidth()
+                            else -> Modifier.fillMaxWidth()
                         }
                         Column(
                             modifier = Modifier.fillMaxWidth()
@@ -275,6 +288,8 @@ fun LibraryScreen(
                                 isMyLibrary = false,
                                 serverUrl = serverUrl,
                                 onItemClick = {
+                                    returnFocusIndex = index
+                                    shouldFocusOnReturn = true
                                     onNavigateToSeries(id)
                                 }
                             )
