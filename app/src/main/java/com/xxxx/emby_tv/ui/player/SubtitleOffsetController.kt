@@ -2,6 +2,7 @@ package com.xxxx.emby_tv.ui.player
 
 import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
+import android.text.SpannableStringBuilder
 
 /**
  * 字幕时间偏移控制器
@@ -9,7 +10,9 @@ import androidx.media3.common.text.CueGroup
  * 缓存播放器分发的 CueGroup（含字幕的媒体时间戳），
  * 按 当前播放位置 - 偏移量 选取应显示的字幕；
  * 文本 Cue 的内置 line/position 定位会被剥离，
- * 统一交由 SubtitleView 的 bottomPaddingFraction 控制垂直位置。
+ * 统一交由 SubtitleView 的 bottomPaddingFraction 控制垂直位置；
+ * 同一时刻的多条文本 Cue（如中英双语）会被合并为单条上下排布，
+ * 避免 media3 渲染器将它们画在同一位置导致重叠。
  *
  * 偏移为正 = 字幕延后显示（完全精确）；
  * 偏移为负 = 字幕提前显示（切换时机最多滞后 |偏移|，因无法预知未来字幕）。
@@ -26,10 +29,27 @@ class SubtitleOffsetController {
         if (groups.isNotEmpty() && timeMs + SEEK_CLEAR_THRESHOLD_MS < groups.last().timeMs) {
             groups.clear()
         }
-        groups.addLast(TimedCues(timeMs, cueGroup.cues.map { it.withoutEmbeddedPosition() }))
+        groups.addLast(
+            TimedCues(
+                timeMs,
+                mergeSimultaneousCues(cueGroup.cues.map { it.withoutEmbeddedPosition() })
+            )
+        )
         if (groups.size > MAX_BUFFERED_GROUPS) {
             groups.removeFirst()
         }
+    }
+
+    private fun mergeSimultaneousCues(cues: List<Cue>): List<Cue> {
+        val textCues = cues.filter { it.bitmap == null && !it.text.isNullOrEmpty() }
+        if (textCues.size < 2) return cues
+        val mergedText = SpannableStringBuilder()
+        textCues.forEachIndexed { index, cue ->
+            if (index > 0) mergedText.append('\n')
+            mergedText.append(cue.text)
+        }
+        val mergedCue = textCues.first().buildUpon().setText(mergedText).build()
+        return cues.filter { it.bitmap != null } + mergedCue
     }
 
     private fun Cue.withoutEmbeddedPosition(): Cue {
