@@ -75,6 +75,12 @@ class PreferencesManager(context: Context) {
         get() = prefs.getFloat(KEY_PLAYBACK_SPEED, DEFAULT_PLAYBACK_SPEED)
         set(value) = prefs.edit().putFloat(KEY_PLAYBACK_SPEED, value).apply()
 
+    // === 字幕设置 ===
+
+    var subtitleBottomPadding: Float
+        get() = prefs.getFloat(KEY_SUBTITLE_BOTTOM_PADDING, DEFAULT_SUBTITLE_BOTTOM_PADDING)
+        set(value) = prefs.edit().putFloat(KEY_SUBTITLE_BOTTOM_PADDING, value).apply()
+
     // === 缓冲设置 ===
 
     var minBufferMs: Int
@@ -179,6 +185,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DISABLE_HEVC = "disable_hevc"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
+        private const val KEY_SUBTITLE_BOTTOM_PADDING = "subtitle_bottom_padding"
 
         private const val KEY_PROXY_ENABLED = "proxy_enabled"
         private const val KEY_PROXY_TYPE = "proxy_type"
@@ -199,6 +206,7 @@ class PreferencesManager(context: Context) {
 
         // 缓冲设置默认值
         const val DEFAULT_PLAYBACK_SPEED = 1.0f
+        const val DEFAULT_SUBTITLE_BOTTOM_PADDING = 0.08f
         const val DEFAULT_MIN_BUFFER_MS = 45_000
         const val DEFAULT_MAX_BUFFER_MS = 120_000
         const val DEFAULT_PLAYBACK_BUFFER_MS = 3_000

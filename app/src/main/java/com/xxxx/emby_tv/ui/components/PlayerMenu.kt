@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.xxxx.emby_tv.R
+import java.util.Locale
 import com.xxxx.emby_tv.Utils.formatFileSize
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.model.BaseItemDto
@@ -40,6 +42,9 @@ import com.xxxx.emby_tv.data.model.MediaStreamDto
 import com.xxxx.emby_tv.util.ErrorHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+private const val SUBTITLE_SYNC_STEP_MS = 250L
+private const val SUBTITLE_SYNC_MAX_STEPS = 120
 
 @Composable
 fun PlayerMenu(
@@ -77,7 +82,11 @@ fun PlayerMenu(
     onBufferSizeBytesChange: (Int) -> Unit = {},
     onResetBufferDefaults: () -> Unit = {},
     playbackSpeed: Float = 1.0f,
-    onPlaybackSpeedChange: (Float) -> Unit = {}
+    onPlaybackSpeedChange: (Float) -> Unit = {},
+    subtitleBottomPadding: Float = 0.08f,
+    onSubtitleBottomPaddingChange: (Float) -> Unit = {},
+    subtitleTimeOffsetMs: Long = 0L,
+    onSubtitleTimeOffsetChange: (Long) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -199,7 +208,11 @@ fun PlayerMenu(
                             "Subtitles" -> SubtitlesTab(
                                 subtitleTracks,
                                 selectedSubtitleIndex,
-                                onSubtitleSelect
+                                onSubtitleSelect,
+                                subtitleBottomPadding,
+                                onSubtitleBottomPaddingChange,
+                                subtitleTimeOffsetMs,
+                                onSubtitleTimeOffsetChange
                             )
 
                             "Audio" -> AudioTab(audioTracks, selectedAudioIndex, onAudioSelect)
@@ -478,8 +491,192 @@ fun EpisodesTab(
 }
 
 @Composable
-fun SubtitlesTab(tracks: List<MediaStreamDto>, selectedIndex: Int, onSelect: (Int) -> Unit) {
+fun SubtitleTimeOffsetRow(timeOffsetMs: Long, onTimeOffsetChange: (Long) -> Unit) {
+    val steps = (timeOffsetMs / SUBTITLE_SYNC_STEP_MS).toInt().coerceIn(-SUBTITLE_SYNC_MAX_STEPS, SUBTITLE_SYNC_MAX_STEPS)
+    val isDefault = steps == 0
+    val seconds = steps * SUBTITLE_SYNC_STEP_MS / 1000.0
+    val valueText = when {
+        isDefault -> String.format(Locale.US, "0.00s (%s)", stringResource(R.string.subtitle_position_default))
+        seconds > 0 -> String.format(Locale.US, "+%.2fs", seconds)
+        else -> String.format(Locale.US, "%.2fs", seconds)
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.subtitle_sync),
+                style = TvMaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OffsetButton(
+                    text = stringResource(R.string.subtitle_earlier),
+                    enabled = steps > -SUBTITLE_SYNC_MAX_STEPS
+                ) {
+                    onTimeOffsetChange((steps - 1) * SUBTITLE_SYNC_STEP_MS)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Text(
+                    text = valueText,
+                    style = TvMaterialTheme.typography.bodyLarge,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(130.dp)
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                OffsetButton(
+                    text = stringResource(R.string.subtitle_later),
+                    enabled = steps < SUBTITLE_SYNC_MAX_STEPS
+                ) {
+                    onTimeOffsetChange((steps + 1) * SUBTITLE_SYNC_STEP_MS)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                OffsetButton(
+                    text = stringResource(R.string.reset_default),
+                    enabled = !isDefault
+                ) {
+                    onTimeOffsetChange(0L)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SubtitleOffsetRow(bottomPadding: Float, onBottomPaddingChange: (Float) -> Unit) {
+    val steps = Math.round(bottomPadding / 0.02f).coerceIn(0, 50)
+    val isDefault = steps == 4
+    val percentText = "${steps * 2}%"
+    val valueText = if (isDefault) {
+        "$percentText (${stringResource(R.string.subtitle_position_default)})"
+    } else {
+        percentText
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.subtitle_position),
+                style = TvMaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OffsetButton(
+                    text = stringResource(R.string.subtitle_move_down),
+                    enabled = steps > 0
+                ) {
+                    onBottomPaddingChange((steps - 1) * 0.02f)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Text(
+                    text = valueText,
+                    style = TvMaterialTheme.typography.bodyLarge,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(110.dp)
+                )
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                OffsetButton(
+                    text = stringResource(R.string.subtitle_move_up),
+                    enabled = steps < 50
+                ) {
+                    onBottomPaddingChange((steps + 1) * 0.02f)
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                OffsetButton(
+                    text = stringResource(R.string.reset_default),
+                    enabled = !isDefault
+                ) {
+                    onBottomPaddingChange(0.08f)
+                }
+            }
+        }
+
+        Text(
+            text = stringResource(R.string.subtitle_position_hint),
+            style = TvMaterialTheme.typography.bodySmall,
+            color = Color.White.copy(alpha = 0.5f),
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun OffsetButton(
+    text: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(4.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            contentColor = Color.White,
+            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+            disabledContainerColor = Color.White.copy(alpha = 0.05f),
+            disabledContentColor = Color.White.copy(alpha = 0.3f)
+        ),
+        modifier = Modifier.padding(horizontal = 2.dp)
+    ) {
+        Text(
+            text = text,
+            style = TvMaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+        )
+    }
+}
+
+@Composable
+fun SubtitlesTab(
+    tracks: List<MediaStreamDto>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    bottomPadding: Float,
+    onBottomPaddingChange: (Float) -> Unit,
+    timeOffsetMs: Long,
+    onTimeOffsetChange: (Long) -> Unit
+) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        item {
+            SubtitleOffsetRow(bottomPadding, onBottomPaddingChange)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        item {
+            SubtitleTimeOffsetRow(timeOffsetMs, onTimeOffsetChange)
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
         item {
             val isSelected = selectedIndex == -1
             Surface(

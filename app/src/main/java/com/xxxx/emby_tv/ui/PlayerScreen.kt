@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,6 +41,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.Timeline
+import androidx.media3.common.text.CueGroup
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
@@ -76,6 +78,7 @@ import com.xxxx.emby_tv.ui.components.getVideoTrack
 
 import com.xxxx.emby_tv.ui.player.PlayerTrackManager
 import com.xxxx.emby_tv.ui.player.SubtitleConfigBuilder
+import com.xxxx.emby_tv.ui.player.SubtitleOffsetController
 import com.xxxx.emby_tv.ui.viewmodel.PlayerViewModel
 import com.xxxx.emby_tv.util.ErrorHandler
 import com.xxxx.emby_tv.util.IntroSkipHelper
@@ -92,6 +95,8 @@ import kotlinx.coroutines.withContext
 /**
  * 播放器界面（Screen）- 使用 PlayerViewModel
  */
+// 字幕顶部预留比例：UI 100% 映射到实际 88%，保证字幕不出屏
+private const val SUBTITLE_TOP_RESERVED_FRACTION = 0.12f
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -167,6 +172,14 @@ fun PlayerScreen(
 
     // 倍速设置 - 从 PreferencesManager 加载保存的值
     var playbackSpeed by remember(preferencesManager.playbackSpeed) { mutableFloatStateOf(preferencesManager.playbackSpeed) }
+
+    // 字幕位置设置 - 从 PreferencesManager 加载保存的值
+    var subtitleBottomPadding by remember(preferencesManager.subtitleBottomPadding) { mutableFloatStateOf(preferencesManager.subtitleBottomPadding) }
+
+    // 字幕时间偏移 - 仅当前播放会话生效
+    var subtitleTimeOffsetMs by remember { mutableLongStateOf(0L) }
+    val subtitleOffsetController = remember { SubtitleOffsetController() }
+    val overlaySubtitleView = remember { mutableStateOf<SubtitleView?>(null) }
 
     // 收集设备支持的杜比视界profile
     val supportedDvProfiles by playerViewModel.supportedDvProfiles.collectAsState()
@@ -368,6 +381,34 @@ fun PlayerScreen(
     // 应用倍速
     LaunchedEffect(playbackSpeed) {
         player.setPlaybackSpeed(playbackSpeed)
+    }
+
+    // 字幕时间偏移：接管字幕渲染（内置 subtitleView 已隐藏，由 overlay SubtitleView 显示）
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onCues(cueGroup: CueGroup) {
+                subtitleOffsetController.onCues(cueGroup)
+            }
+
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                subtitleOffsetController.reset()
+            }
+        }
+        player.addListener(listener)
+        onDispose { player.removeListener(listener) }
+    }
+
+    LaunchedEffect(player) {
+        while (isActive) {
+            overlaySubtitleView.value?.setCues(
+                subtitleOffsetController.cuesFor(player.currentPosition, subtitleTimeOffsetMs)
+            )
+            delay(50)
+        }
     }
 
     LaunchedEffect(leftKeyDownTime) {
@@ -1098,37 +1139,56 @@ fun PlayerScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        // --- 核心配置：还原作者原定样式 ---
-                        subtitleView?.apply {
-                            // 1. 允许应用字幕文件内置的样式（颜色、字体、定位等）
-                            setApplyEmbeddedStyles(true)
-
-                            // 2. 允许应用字幕文件内置的字体大小
-                            setApplyEmbeddedFontSizes(true)
-
-                            // 3. 关键：将渲染模式设为 BITMAP（位图模式）
-                            // 只有在这种模式下，复杂的 ASS/SSA 特效和 PGS 图形字幕才能精准还原
-                            // 默认的层次模式（VIEW_TYPE_TEXT）会丢失很多高级特效
-                            // VIEW_TYPE_CANVAS = 2
-                            setViewType(SubtitleView.VIEW_TYPE_CANVAS)
-
-                            // 4. 强制设置透明背景，避免默认样式的黑色背景遮挡
-                            val transparentStyle = CaptionStyleCompat(
-                                android.graphics.Color.WHITE,
-                                android.graphics.Color.TRANSPARENT,
-                                android.graphics.Color.TRANSPARENT,
-                                CaptionStyleCompat.EDGE_TYPE_NONE,
-                                android.graphics.Color.WHITE,
-                                null
-                            )
-                            setStyle(transparentStyle)
-                        }
+                        // 内置字幕视图改为由下方 overlay SubtitleView 渲染（支持时间偏移）
+                        subtitleView?.visibility = View.GONE
                     }
                 },
                 update = { view ->
                     view.player = player
                 },
 //                modifier = Modifier.fillMaxSize()
+            )
+
+            // 1.5 Subtitle Layer - 接管字幕渲染，支持时间偏移
+            AndroidView(
+                factory = { ctx ->
+                    SubtitleView(ctx).apply {
+                        // 1. 允许应用字幕文件内置的样式（颜色、字体、定位等）
+                        setApplyEmbeddedStyles(true)
+
+                        // 2. 允许应用字幕文件内置的字体大小
+                        setApplyEmbeddedFontSizes(true)
+
+                        // 3. 关键：将渲染模式设为 BITMAP（位图模式）
+                        // 只有在这种模式下，复杂的 ASS/SSA 特效和 PGS 图形字幕才能精准还原
+                        // 默认的层次模式（VIEW_TYPE_TEXT）会丢失很多高级特效
+                        // VIEW_TYPE_CANVAS = 2
+                        setViewType(SubtitleView.VIEW_TYPE_CANVAS)
+
+                        // 4. 强制设置透明背景，避免默认样式的黑色背景遮挡
+                        val transparentStyle = CaptionStyleCompat(
+                            android.graphics.Color.WHITE,
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT,
+                            CaptionStyleCompat.EDGE_TYPE_NONE,
+                            android.graphics.Color.WHITE,
+                            null
+                        )
+                        setStyle(transparentStyle)
+
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        overlaySubtitleView.value = this
+                    }
+                },
+                update = { view ->
+                    view.setBottomPaddingFraction(
+                        subtitleBottomPadding * (1f - SUBTITLE_TOP_RESERVED_FRACTION)
+                    )
+                },
+                modifier = Modifier.fillMaxSize()
             )
 
 
@@ -1358,6 +1418,13 @@ fun PlayerScreen(
                         playbackSpeed = it
                         preferencesManager.playbackSpeed = it
                     },
+                    subtitleBottomPadding = subtitleBottomPadding,
+                    onSubtitleBottomPaddingChange = {
+                        subtitleBottomPadding = it
+                        preferencesManager.subtitleBottomPadding = it
+                    },
+                    subtitleTimeOffsetMs = subtitleTimeOffsetMs,
+                    onSubtitleTimeOffsetChange = { subtitleTimeOffsetMs = it },
                     isFavorite = isFavorite,
                     onToggleFavorite = {
                         isFavorite = !isFavorite

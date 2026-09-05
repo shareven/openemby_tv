@@ -97,6 +97,14 @@
     <string name="info">Info</string>
     <string name="episodes">Episodes</string>
     <string name="subtitles">Subtitles</string>
+    <string name="subtitle_position">Subtitle Position</string>
+    <string name="subtitle_position_default">Default</string>
+    <string name="subtitle_move_up">Up</string>
+    <string name="subtitle_move_down">Down</string>
+    <string name="subtitle_sync">Subtitle Sync</string>
+    <string name="subtitle_earlier">Earlier</string>
+    <string name="subtitle_later">Later</string>
+    <string name="subtitle_position_hint">All text subtitles move to the set position; bitmap subtitles (PGS) stay in place</string>
     <string name="audio">Audio</string>
     <string name="playback_correction">Playback Correction</string>
     <string name="input_label">Input</string>

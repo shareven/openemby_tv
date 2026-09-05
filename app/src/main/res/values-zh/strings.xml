@@ -40,6 +40,14 @@
     <string name="episodes">选集</string>
     <string name="playback">播放</string>
     <string name="subtitles">字幕</string>
+    <string name="subtitle_position">字幕位置</string>
+    <string name="subtitle_position_default">默认</string>
+    <string name="subtitle_move_up">上移</string>
+    <string name="subtitle_move_down">下移</string>
+    <string name="subtitle_sync">字幕同步</string>
+    <string name="subtitle_earlier">提前</string>
+    <string name="subtitle_later">延后</string>
+    <string name="subtitle_position_hint">文本字幕均会移动到设定位置；图形字幕（PGS）保持原位</string>
     <string name="audio">音频</string>
     <string name="disable_subtitles">关闭字幕</string>
     <string name="no_episodes_found">未找到分集</string>
