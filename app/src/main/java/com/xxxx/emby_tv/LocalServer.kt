@@ -350,17 +350,52 @@ class LocalServer private constructor(
                     </form>
                 </div>
                 <script>
-                    function toggleProtocol() {
+                    function setProtocol(p) {
                         var btn = document.getElementById('btn-protocol');
                         var input = document.getElementById('protocol-input');
-                        if (input.value === 'http') {
-                            input.value = 'https';
-                            btn.innerText = 'HTTPS';
-                        } else {
-                            input.value = 'http';
-                            btn.innerText = 'HTTP';
-                        }
+                        input.value = p;
+                        btn.innerText = p.toUpperCase();
                     }
+                    function toggleProtocol() {
+                        setProtocol(document.getElementById('protocol-input').value === 'http' ? 'https' : 'http');
+                    }
+                    // 解析 http(s)://host[:port] 并自动填充协议、地址、端口
+                    function parseAndFillUrl(text) {
+                        text = (text || '').trim();
+                        var m = text.match(/^(https?):\/\/([^\/:\s]+)(?::(\d+))?(?:\/|$|\s)/i);
+                        if (!m) return false;
+                        var protocol = m[1].toLowerCase();
+                        var host = m[2];
+                        var port = m[3] || (protocol === 'https' ? '443' : '80');
+                        setProtocol(protocol);
+                        document.querySelector('input[name=host]').value = host;
+                        document.querySelector('input[name=port]').value = port;
+                        return true;
+                    }
+                    // 页面打开时尝试自动读取剪贴板（需浏览器支持且在安全上下文）
+                    if (navigator.clipboard && navigator.clipboard.readText) {
+                        navigator.clipboard.readText().then(function(text) {
+                            if (text && /^https?:\/\//i.test(text.trim())) {
+                                parseAndFillUrl(text);
+                            }
+                        }).catch(function() {});
+                    }
+                    // 兜底：用户粘贴时识别（非安全上下文也可用）
+                    document.addEventListener('paste', function(e) {
+                        var text = (e.clipboardData || window.clipboardData).getData('text');
+                        if (text && /^https?:\/\//i.test(text.trim())) {
+                            parseAndFillUrl(text);
+                            e.preventDefault();
+                        }
+                    });
+                    // 地址框内直接粘贴/输入完整 URL 时自动拆解
+                    document.querySelector('input[name=host]').addEventListener('input', function(e) {
+                        var v = e.target.value.trim();
+                        if (/^https?:\/\//i.test(v) && parseAndFillUrl(v)) {
+                            e.target.blur();
+                            e.target.focus();
+                        }
+                    });
                     if (navigator.language.startsWith('zh')) {
                         document.getElementById('form-title').innerText = 'Emby TV 登录';
                         document.getElementById('label-url').innerText = '服务器地址';

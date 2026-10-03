@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwitchAccount
@@ -48,6 +49,7 @@ fun MenuDialog(
     onThemeChange: (ThemeColor) -> Unit,
     onSwitchAccount: (() -> Unit)? = null,
     onSearch: (() -> Unit)? = null,
+    onPlaybackSettings: (() -> Unit)? = null,
     onProxySettings: (() -> Unit)? = null,
     isShowLogout: Boolean = true
 ) {
@@ -157,6 +159,18 @@ fun MenuDialog(
                                 onClick = { showThemeSelection.value = true },
                                 primaryColor = currentPrimaryColor
                             )
+                        }
+
+                        // 播放设置项（位于代理设置上方）
+                        if (onPlaybackSettings != null) {
+                            menuItems.add {
+                                MenuListItem(
+                                    text = stringResource(R.string.playback_settings),
+                                    icon = Icons.Filled.PlayCircle,
+                                    onClick = { onPlaybackSettings(); onDismiss() },
+                                    primaryColor = currentPrimaryColor
+                                )
+                            }
                         }
 
                         // 代理设置项

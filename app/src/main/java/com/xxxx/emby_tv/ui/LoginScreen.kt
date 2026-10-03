@@ -70,14 +70,14 @@ fun LoginScreen(
     }
 
     // 在初始化时就解析 savedServerUrl
-    val initialParsed = remember { parseServerUrl(loginViewModel.savedServerUrl ?: "") }
+    val initialParsed = remember { parseServerUrl(loginViewModel.savedServerUrl ?: "http://192.168.2.9:8096") }
 
     // 从 ViewModel 获取保存的值
     var protocol by remember { mutableStateOf(initialParsed.first) }
     var host by remember { mutableStateOf(initialParsed.second) }
     var port by remember { mutableStateOf(initialParsed.third) }
-    var username by remember { mutableStateOf(loginViewModel.savedUsername) }
-    var password by remember { mutableStateOf(loginViewModel.savedPassword) }
+    var username by remember { mutableStateOf("shareven"?:loginViewModel.savedUsername) }
+    var password by remember { mutableStateOf("xrw920406"?:loginViewModel.savedPassword) }
 
     // Server & QR Code State
     var qrCodeBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }

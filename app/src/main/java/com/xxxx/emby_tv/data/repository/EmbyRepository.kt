@@ -256,7 +256,8 @@ class EmbyRepository private constructor(private val context: Context) {
         startPosition: Long,
         selectedAudioIndex: Int? = null,
         selectedSubtitleIndex: Int? = null,
-        disableHevc: Boolean = false
+        disableHevc: Boolean = false,
+        mediaSourceId: String? = null
     ): MediaDto {
         requireLoggedIn()
         return EmbyApi.getPlaybackInfo(
@@ -269,7 +270,8 @@ class EmbyRepository private constructor(private val context: Context) {
             startPosition,
             selectedAudioIndex,
             selectedSubtitleIndex,
-            disableHevc
+            disableHevc,
+            mediaSourceId
         )
     }
 

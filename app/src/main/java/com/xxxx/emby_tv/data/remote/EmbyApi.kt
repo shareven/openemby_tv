@@ -319,7 +319,8 @@ object EmbyApi {
         startTimeTicks: Long,
         selectedAudioIndex: Int? = null,
         selectedSubtitleIndex: Int? = null,
-        disableHevc: Boolean = false
+        disableHevc: Boolean = false,
+        mediaSourceId: String? = null
     ): MediaDto = withContext(Dispatchers.IO) {
         try {
             val body = buildPlaybackInfoBody(context, disableHevc)
@@ -333,7 +334,8 @@ object EmbyApi {
                     "&X-Emby-Language=zh-cn" +
                     "&reqformat=json" +
                     (selectedAudioIndex?.let { "&AudioStreamIndex=$it" } ?: "") +
-                    (selectedSubtitleIndex?.let { "&SubtitleStreamIndex=$it" } ?: "")
+                    (selectedSubtitleIndex?.let { "&SubtitleStreamIndex=$it" } ?: "") +
+                    (mediaSourceId?.let { "&MediaSourceId=$it" } ?: "")
 
             val result = httpAsJsonObject(context, serverUrl, apiKey, deviceId, url, "POST", body)
             gson.fromJson(result, MediaDto::class.java)
@@ -877,6 +879,13 @@ object EmbyApi {
                     })
 
                     if (!actualDisableHevc && (videoCodecs.contains("hevc") || videoCodecs.contains("h265"))) {
+                        // 设备具备杜比视界硬解时，允许 dvh1/dvhe 标签的 HEVC 直连，
+                        // 否则服务器会对 DV 片源强制转码，电视无法点亮 DV 标
+                        val hevcCodecTags = if (capabilities.supportsDolbyVision) {
+                            "hvc1|hev1|hevc|hdmv|dvh1|dvhe"
+                        } else {
+                            "hvc1|hev1|hevc|hdmv"
+                        }
                         add(JsonObject().apply {
                             addProperty("Type", "Video")
                             addProperty("Codec", "hevc")
@@ -884,7 +893,7 @@ object EmbyApi {
                                 add(JsonObject().apply {
                                     addProperty("Condition", "EqualsAny")
                                     addProperty("Property", "VideoCodecTag")
-                                    addProperty("Value", "hvc1|hev1|hevc|hdmv")
+                                    addProperty("Value", hevcCodecTags)
                                     addProperty("IsRequired", false)
                                 })
                             })
@@ -1003,6 +1012,7 @@ object EmbyApi {
         val videoCodecs = mutableSetOf<String>()
         val audioCodecs = mutableSetOf<String>()
         val videoProfiles = mutableListOf<VideoProfile>()
+        var supportsDolbyVision = false
 
         //添加ffmpeg支持的类型
         val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
@@ -1023,6 +1033,16 @@ object EmbyApi {
                         type.equals("video/hevc", ignoreCase = true) -> {
                             videoCodecs.add("hevc")
                             videoCodecs.add("h265")
+                        }
+                        type.equals("video/dolby-vision", ignoreCase = true) -> {
+                            // 检测到杜比视界硬解器：向服务器声明 DV 编码（dvh1/dvhe），
+                            // 确保杜比视界片源直接串流不被服务器转码，
+                            // 原始 DV 信号经硬解直通输出后，电视自行点亮 DV 标
+                            videoCodecs.add("dvh1")
+                            videoCodecs.add("dvhe")
+                            videoCodecs.add("hevc")
+                            videoCodecs.add("h265")
+                            supportsDolbyVision = true
                         }
                         type.equals("video/av01", ignoreCase = true) -> videoCodecs.add("av1")
                         type.equals("video/x-vnd.on2.vp8", ignoreCase = true) -> videoCodecs.add("vp8")
@@ -1075,7 +1095,8 @@ object EmbyApi {
             audioCodecs = audioCodecs.toList(),
             videoProfiles = videoProfiles,
             maxCanvasWidth = maxDecodeWidth,
-            maxCanvasHeight = maxDecodeHeight
+            maxCanvasHeight = maxDecodeHeight,
+            supportsDolbyVision = supportsDolbyVision
         )
     }
 
@@ -1118,5 +1139,6 @@ data class DeviceCapabilities(
     val audioCodecs: List<String>,
     val videoProfiles: List<VideoProfile>,
     val maxCanvasWidth: Int = 3840,
-    val maxCanvasHeight: Int = 2160
+    val maxCanvasHeight: Int = 2160,
+    val supportsDolbyVision: Boolean = false
 )

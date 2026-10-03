@@ -89,6 +89,10 @@ fun HomeScreen(
                 showMenu = false
                 navController.navigate("search")
             },
+            onPlaybackSettings = {
+                showMenu = false
+                navController.navigate("playback_settings")
+            },
             onProxySettings = {
                 showMenu = false
                 navController.navigate("proxy_settings")

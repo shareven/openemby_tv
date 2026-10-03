@@ -28,6 +28,7 @@ import com.xxxx.emby_tv.ui.AccountScreen
 import com.xxxx.emby_tv.ui.MediaDetailScreen
 import com.xxxx.emby_tv.ui.HomeScreen
 import com.xxxx.emby_tv.ui.UpdateScreen
+import com.xxxx.emby_tv.ui.PlaybackSettingsScreen
 import com.xxxx.emby_tv.ui.ProxySettingsScreen
 import com.xxxx.emby_tv.ui.SearchScreen
 import com.xxxx.emby_tv.ui.components.BuildGradientBackground
@@ -185,6 +186,13 @@ fun EmbyTvApp() {
                                 // 退出当前账号，进入登录页面添加新账号
                                 mainViewModel.logout()
                             }
+                        )
+                    }
+
+                    // 播放设置页面
+                    composable("playback_settings") {
+                        PlaybackSettingsScreen(
+                            onBack = { navController.popBackStack() }
                         )
                     }
 

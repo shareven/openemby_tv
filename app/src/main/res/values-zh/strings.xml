@@ -107,6 +107,7 @@
     <string name="loop_list">列表循环</string>
     <string name="loop_single">单集循环</string>
     <string name="loop_off">不循环</string>
+    <string name="loop_playback">循环播放</string>
     <string name="input_label">输入</string>
     <string name="confirm">确认</string>
     <string name="cancel">取消</string>
@@ -262,4 +263,25 @@
     <string name="filter_watched">已观看</string>
     <string name="filter_unwatched">未观看</string>
     <string name="filter_favorite">收藏</string>
+
+    <!-- 多版本片源 / 外部播放器 -->
+    <string name="media_source">片源</string>
+    <string name="external_player">外部播放器</string>
+    <string name="external_player_system">系统选择</string>
+    <string name="external_player_none_found">未找到可用的外部播放器</string>
+    <string name="external_player_launch_failed">启动外部播放器失败</string>
+    <string name="error_rate_limited">服务器限流或设备数超限，请稍后再试或检查是否有其他设备正在播放</string>
+
+    <!-- 播放设置 -->
+    <string name="playback_settings">播放设置</string>
+    <string name="external_player_preference">外部播放器偏好</string>
+    <string name="external_player_never">从不（使用内置播放器）</string>
+    <string name="external_player_always">总是使用外部播放器</string>
+    <string name="external_player_dv_only">仅杜比视界使用外部播放器</string>
+    <string name="default_external_player">默认外部播放器</string>
+    <string name="source_preference">多片源版本优先</string>
+    <string name="source_pref_dv_first">杜比视界优先</string>
+    <string name="source_pref_hdr_first">HDR 优先</string>
+    <string name="source_pref_smooth">流畅优先（低码率）</string>
+    <string name="source_pref_default">默认排序</string>
 </resources>

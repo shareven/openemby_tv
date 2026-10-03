@@ -20,6 +20,14 @@
         android:name="android.software.leanback"
         android:required="false" />
 
+    <!-- 查询可处理视频的外部播放器（Android 11+ 包可见性） -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="true"

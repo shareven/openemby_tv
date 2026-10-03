@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,12 +35,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import com.xxxx.emby_tv.R
 import java.util.Locale
+import com.xxxx.emby_tv.Utils
 import com.xxxx.emby_tv.Utils.formatFileSize
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
+import com.xxxx.emby_tv.data.model.MediaSourceInfoDto
 import com.xxxx.emby_tv.data.model.MediaStreamDto
 import com.xxxx.emby_tv.util.ErrorHandler
+import com.xxxx.emby_tv.util.ExternalPlayerHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -86,25 +90,34 @@ fun PlayerMenu(
     subtitleBottomPadding: Float = 0.08f,
     onSubtitleBottomPaddingChange: (Float) -> Unit = {},
     subtitleTimeOffsetMs: Long = 0L,
-    onSubtitleTimeOffsetChange: (Long) -> Unit = {}
+    onSubtitleTimeOffsetChange: (Long) -> Unit = {},
+    currentMediaSourceId: String? = null,
+    allMediaSources: List<MediaSourceInfoDto> = emptyList(),
+    onSourceSelect: (MediaSourceInfoDto) -> Unit = {},
+    onLaunchExternalPlayer: (String?) -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
     // Determine if Episodes tab should be shown
     val isSeries = mediaInfo.type == "Episode" || mediaInfo.seriesId != null
 
+    // 完整片源列表（多版本）。切换片源后服务器只返回单个源，须使用上层缓存的完整列表
+    val mediaSources = allMediaSources.ifEmpty { media.mediaSources ?: emptyList() }
+
     // Build tabs dynamically
-    val tabs = remember(isSeries) {
+    val tabs = remember(isSeries, mediaSources.size) {
         val list = mutableListOf<String>()
         if (isSeries) list.add("Episodes") // 0 (if present)
         list.add("Info") // 0 or 1
+        if (mediaSources.size > 1) list.add("Version")
         list.add("Speed") // 倍速
         list.add("Subtitles") // 2 or 1
         list.add("Audio") // 3 or 2
-        if (isSeries) list.add("Mode")
+        list.add("Mode")
         list.add("Correction") // ...
         list.add("IntroSkip") // Intro Skip settings
         list.add("Buffer") // Buffer settings
+        list.add("External") // 外部播放器
         list
     }
 
@@ -128,7 +141,7 @@ fun PlayerMenu(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.65f),
+                    .fillMaxHeight(0.75f),
                 shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
                 border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))),
                 colors = SurfaceDefaults.colors(
@@ -150,6 +163,8 @@ fun PlayerMenu(
                             val displayTitle = when (title) {
                                 "Info" -> stringResource(R.string.info)
                                 "Episodes" -> stringResource(R.string.episodes)
+                                "Version" -> stringResource(R.string.media_source)
+                                "External" -> stringResource(R.string.external_player)
                                 "Speed" -> stringResource(R.string.playback_speed)
                                 "Subtitles" -> stringResource(R.string.subtitles)
                                 "Audio" -> stringResource(R.string.audio_label)
@@ -195,14 +210,32 @@ fun PlayerMenu(
                     // Content
                     Box(modifier = Modifier.weight(1f)) {
                         val currentTabName = getTabContent(selectedTab)
+                        // Info 页展示当前选中的片源信息（多版本切换后随之更新）
+                        val currentSource = mediaSources.firstOrNull { it.id == currentMediaSourceId }
+                            ?: mediaSources.firstOrNull()
                         when (currentTabName) {
-                            "Info" -> InfoTab(mediaInfo, media, isFavorite, onToggleFavorite)
+                            "Info" -> InfoTab(mediaInfo, media, isFavorite, onToggleFavorite, currentSource)
                             "Episodes" -> EpisodesTab(
                                 mediaInfo,
                                 serverUrl,
                                 repository,
                                 onDismiss,
                                 onNavigateToPlayer
+                            )
+
+                            "Version" -> VersionTab(
+                                mediaSources,
+                                currentMediaSourceId,
+                                onSourceSelect
+                            )
+
+                            "External" -> ExternalPlayerTab(
+                                media,
+                                mediaInfo,
+                                currentMediaSourceId,
+                                serverUrl,
+                                repository,
+                                onLaunchExternalPlayer
                             )
 
                             "Subtitles" -> SubtitlesTab(
@@ -217,7 +250,7 @@ fun PlayerMenu(
 
                             "Audio" -> AudioTab(audioTracks, selectedAudioIndex, onAudioSelect)
                             "Speed" -> SpeedTab(playbackSpeed, onPlaybackSpeedChange)
-                            "Mode" -> PlayModeTab(playMode, onPlayModeChange)
+                            "Mode" -> PlayModeTab(playMode, onPlayModeChange, isSeries)
                             "Correction" -> PlaybackCorrectionTab(
                                 playbackCorrection,
                                 onPlaybackCorrectionChange
@@ -257,7 +290,8 @@ fun InfoTab(
     mediaInfo: BaseItemDto,
     media: MediaDto,
     isFavorite: Boolean,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    currentSource: MediaSourceInfoDto? = null
 ) {
 
     val scrollState = rememberScrollState()
@@ -298,7 +332,8 @@ fun InfoTab(
             val year = mediaInfo.productionYear?.toString() ?: mediaInfo.premiereDate?.take(4) ?: ""
             if (year.isNotEmpty()) MetaBadge(text = year)
 
-            val source = media.mediaSources?.firstOrNull()
+            // 优先取当前选中的片源（多版本切换后保持一致），否则取第一个
+            val source = currentSource ?: media.mediaSources?.firstOrNull()
             val videoStream = source?.mediaStreams?.find { it.type == "Video" }
 
             val resolution = when {
@@ -314,7 +349,8 @@ fun InfoTab(
             val codec = videoStream?.codec?.uppercase() ?: ""
             if (codec.isNotEmpty()) MetaBadge(text = codec)
 
-            val fileSize = formatFileSize(mediaInfo.size)
+            // 多版本影片的大小按当前片源显示，无片源信息时回退 Item 全局大小
+            val fileSize = formatFileSize(currentSource?.size ?: mediaInfo.size)
             MetaBadge(text = fileSize)
         }
 
@@ -896,17 +932,24 @@ fun PlaybackCorrectionTab(current: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
-fun PlayModeTab(current: Int, onChange: (Int) -> Unit) {
-    val modes = listOf(
+fun PlayModeTab(current: Int, onChange: (Int) -> Unit, isSeries: Boolean = true) {
+    // 剧集：0 列表循环 / 1 单集循环 / 2 不循环
+    // 非剧集：仅 1 循环播放 / 2 不循环
+    val modes = if (isSeries) listOf(
         stringResource(R.string.loop_list),
         stringResource(R.string.loop_single),
         stringResource(R.string.loop_off)
+    ) else listOf(
+        stringResource(R.string.loop_playback),
+        stringResource(R.string.loop_off)
     )
+    val values = if (isSeries) listOf(0, 1, 2) else listOf(1, 2)
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
         itemsIndexed(modes) { index, title ->
-            val isSelected = current == index
+            val value = values[index]
+            val isSelected = current == value
             Surface(
-                onClick = { onChange(index) },
+                onClick = { onChange(value) },
                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
                 colors = ClickableSurfaceDefaults.colors(
                     focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
@@ -986,6 +1029,176 @@ fun IntroSkipTab(
                         tint = LocalContentColor.current
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 生成媒体源（版本）副标题：分辨率 · 编码 · 动态范围 · 体积 · 码率
+ */
+private fun buildSourceDetail(source: MediaSourceInfoDto): String {
+    val video = source.mediaStreams?.firstOrNull { it.type == "Video" }
+    val parts = mutableListOf<String>()
+    video?.height?.takeIf { it > 0 }?.let { parts.add("${it}p") }
+    video?.codec?.uppercase()?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+    video?.videoRange?.takeIf { it.isNotEmpty() }?.let { parts.add(it) }
+    source.size?.takeIf { it > 0 }?.let { parts.add(formatFileSize(it)) }
+    source.bitrate?.takeIf { it > 0 }?.let { parts.add(Utils.formatMbps(it)) }
+    return parts.joinToString(" · ")
+}
+
+/**
+ * 多版本片源切换 Tab：同一影片在服务器上的不同版本（不同分辨率/编码/体积）
+ */
+@Composable
+fun VersionTab(
+    sources: List<MediaSourceInfoDto>,
+    currentSourceId: String?,
+    onSelect: (MediaSourceInfoDto) -> Unit
+) {
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        items(sources) { source ->
+            val isSelected = source.id != null && source.id == currentSourceId
+            val title = source.name?.takeIf { it.isNotBlank() }
+                ?: stringResource(R.string.unknown)
+            val detail = buildSourceDetail(source)
+
+            Surface(
+                onClick = { onSelect(source) },
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+                    containerColor = if (isSelected) TvMaterialTheme.colorScheme.surfaceVariant.copy(
+                        alpha = 0.5f
+                    ) else Color.Transparent,
+                    contentColor = TvMaterialTheme.colorScheme.onSurface
+                ),
+                scale = ClickableSurfaceDefaults.scale(
+                    focusedScale = 1.03f,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(12.dp)
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = title,
+                            style = TvMaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (detail.isNotEmpty()) {
+                            Text(
+                                text = detail,
+                                style = TvMaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.6f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    if (isSelected) Icon(
+                        Icons.Default.Check,
+                        null,
+                        tint = LocalContentColor.current
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 外部播放器 Tab：枚举设备上可播放视频的播放器，交给上层统一拉起
+ * （pkg 空串=系统选择器；偏好模式下的默认播放器由上层处理）
+ */
+@Composable
+fun ExternalPlayerTab(
+    media: MediaDto,
+    mediaInfo: BaseItemDto,
+    currentMediaSourceId: String?,
+    serverUrl: String,
+    repository: EmbyRepository,
+    onLaunchExternalPlayer: (String?) -> Unit
+) {
+    val context = LocalContext.current
+
+    // label to packageName（null 表示系统选择器）
+    var options by remember { mutableStateOf<List<Pair<String, String?>>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        options = ExternalPlayerHelper.queryPlayers(context).map { it.label to it.packageName }
+        loaded = true
+    }
+
+    LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        item {
+            val label = stringResource(R.string.external_player_system)
+            Surface(
+                onClick = { onLaunchExternalPlayer("") },
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+                    containerColor = Color.Transparent,
+                    contentColor = TvMaterialTheme.colorScheme.onSurface
+                ),
+                scale = ClickableSurfaceDefaults.scale(
+                    focusedScale = 1.03f,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = TvMaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+        items(options) { (label, pkg) ->
+            Surface(
+                onClick = { onLaunchExternalPlayer(pkg) },
+                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                colors = ClickableSurfaceDefaults.colors(
+                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+                    containerColor = Color.Transparent,
+                    contentColor = TvMaterialTheme.colorScheme.onSurface
+                ),
+                scale = ClickableSurfaceDefaults.scale(
+                    focusedScale = 1.03f,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    text = label,
+                    style = TvMaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+        if (loaded && options.isEmpty()) {
+            item {
+                Text(
+                    text = stringResource(R.string.external_player_none_found),
+                    style = TvMaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(16.dp)
+                )
             }
         }
     }

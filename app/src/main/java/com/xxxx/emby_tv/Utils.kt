@@ -6,6 +6,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
+import com.xxxx.emby_tv.data.model.MediaSourceInfoDto
 import android.media.MediaCodecList
 
 object Utils {
@@ -188,6 +189,52 @@ data class DvProfileInfo(
     val levelInt: Int,
     val maxSupportedLevel: String,
 )
+
+/**
+ * 多片源版本自动选择（按用户偏好策略）
+ *
+ * @param preference 0:杜比视界优先 1:HDR优先 2:流畅优先(低码率) 3:默认排序
+ */
+fun pickPreferredMediaSource(
+    sources: List<MediaSourceInfoDto>,
+    preference: Int
+): MediaSourceInfoDto? {
+    if (sources.size <= 1) return sources.firstOrNull()
+    return when (preference) {
+        0 -> sources.firstOrNull { isDolbyVisionSource(it) } ?: sources.firstOrNull()
+        1 -> sources.firstOrNull { isHdrClassSource(it) } ?: sources.firstOrNull()
+        2 -> sources.filter { (it.bitrate ?: 0) > 0 }.minByOrNull { it.bitrate!! }
+            ?: sources.firstOrNull()
+        else -> sources.firstOrNull()
+    }
+}
+
+/** 该片源是否为杜比视界（元数据缺失时按片源名/路径兜底，".DV." 精确匹配避免误判 DVD） */
+fun isDolbyVisionSource(source: MediaSourceInfoDto): Boolean {
+    val video = source.mediaStreams?.firstOrNull { it.type == "Video" }
+    val rangeType = video?.videoRangeType?.uppercase() ?: ""
+    if (rangeType.startsWith("DOVI")) return true
+    if (video?.videoRange?.equals("DV", ignoreCase = true) == true) return true
+    val nameSource = "${source.name ?: ""}|${source.path ?: ""}"
+    if (nameSource.contains(".DV.") || nameSource.contains(".DoVi.")) return true
+    if (nameSource.contains("Dolby.Vision", ignoreCase = true)) return true
+    return false
+}
+
+/** 该片源是否为 HDR 类（HDR10/HDR10+/HLG/杜比视界；元数据缺失时按名称兜底） */
+fun isHdrClassSource(source: MediaSourceInfoDto): Boolean {
+    if (isDolbyVisionSource(source)) return true
+    val video = source.mediaStreams?.firstOrNull { it.type == "Video" } ?: return false
+    val rangeType = video.videoRangeType?.uppercase() ?: ""
+    val range = video.videoRange?.uppercase() ?: ""
+    if (rangeType.contains("HDR10") || rangeType.contains("HLG")) return true
+    if (range == "HDR") return true
+    val nameSource = "${source.name ?: ""}|${source.path ?: ""}"
+    if (nameSource.contains(".HDR", ignoreCase = true) || nameSource.contains("HDR10", ignoreCase = true) ||
+        nameSource.contains("HLG", ignoreCase = true)
+    ) return true
+    return false
+}
 
 fun getSupportedDolbyVisionProfiles(): List<DvProfileInfo> {
     val profileList = mutableListOf<DvProfileInfo>()

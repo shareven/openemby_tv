@@ -27,6 +27,29 @@ class PreferencesManager(context: Context) {
         get() = prefs.getBoolean(KEY_DISABLE_HEVC, false)
         set(value) = prefs.edit().putBoolean(KEY_DISABLE_HEVC, value).apply()
 
+    // === 片源偏好（多版本影片记住上次选择的片源名，如 "4K HDR"/"1080p"）===
+
+    var preferredMediaSourceName: String
+        get() = prefs.getString(KEY_PREFERRED_SOURCE_NAME, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PREFERRED_SOURCE_NAME, value).apply()
+
+    // === 外部播放器偏好 ===
+    // 0: 从不（始终用内置播放器）1: 总是 2: 仅杜比视界
+    var externalPlayerMode: Int
+        get() = prefs.getInt(KEY_EXTERNAL_PLAYER_MODE, 0)
+        set(value) = prefs.edit().putInt(KEY_EXTERNAL_PLAYER_MODE, value).apply()
+
+    // 指定外部播放器包名，空串表示系统选择器
+    var preferredExternalPlayerPackage: String
+        get() = prefs.getString(KEY_PREFERRED_EXTERNAL_PLAYER_PKG, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_PREFERRED_EXTERNAL_PLAYER_PKG, value).apply()
+
+    // === 多片源版本优先策略 ===
+    // 0: 杜比视界优先（默认）1: HDR优先 2: 流畅优先（低码率）3: 默认排序
+    var sourcePreference: Int
+        get() = prefs.getInt(KEY_SOURCE_PREFERENCE, 0)
+        set(value) = prefs.edit().putInt(KEY_SOURCE_PREFERENCE, value).apply()
+
     // === 排序设置 ===
 
     var librarySortBy: String
@@ -183,6 +206,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_THEME_ID = "selected_theme_id"
         private const val KEY_PREFER_DIRECT_PLAY = "prefer_direct_play"
         private const val KEY_DISABLE_HEVC = "disable_hevc"
+        private const val KEY_PREFERRED_SOURCE_NAME = "preferred_media_source_name"
+        private const val KEY_EXTERNAL_PLAYER_MODE = "external_player_mode"
+        private const val KEY_PREFERRED_EXTERNAL_PLAYER_PKG = "preferred_external_player_pkg"
+        private const val KEY_SOURCE_PREFERENCE = "source_preference"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
         private const val KEY_SUBTITLE_BOTTOM_PADDING = "subtitle_bottom_padding"

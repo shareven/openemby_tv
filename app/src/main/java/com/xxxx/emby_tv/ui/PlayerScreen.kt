@@ -34,6 +34,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -72,6 +74,7 @@ import androidx.media3.ui.CaptionStyleCompat
 import androidx.media3.ui.SubtitleView
 import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.Utils
+import com.xxxx.emby_tv.pickPreferredMediaSource
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
@@ -89,7 +92,9 @@ import com.xxxx.emby_tv.ui.player.SubtitleConfigBuilder
 import com.xxxx.emby_tv.ui.player.SubtitleOffsetController
 import com.xxxx.emby_tv.ui.viewmodel.PlayerViewModel
 import com.xxxx.emby_tv.util.ErrorHandler
+import com.xxxx.emby_tv.util.ExternalPlayerHelper
 import com.xxxx.emby_tv.util.IntroSkipHelper
+import com.xxxx.emby_tv.util.ZidooHelper
 import com.xxxx.emby_tv.data.local.PreferencesManager
 import com.xxxx.emby_tv.data.remote.EmbyApi
 import com.xxxx.emby_tv.data.remote.EmbyApi.CLIENT_VERSION
@@ -227,6 +232,13 @@ fun PlayerScreen(
     var hasTriedTranscodeFallback by remember { mutableStateOf(false) }
     var currentTracks by remember { mutableStateOf<Tracks?>(null) }
 
+    // 多版本片源切换：null 表示使用服务器返回的默认源
+    var selectedMediaSourceId by remember { mutableStateOf<String?>(null) }
+    var currentMediaSourceId by remember { mutableStateOf<String?>(null) }
+    // 完整片源列表：指定 MediaSourceId 重新请求时服务器只返回单个源，
+    // 需保留首次获取的完整列表供菜单切换使用
+    var allMediaSources by remember { mutableStateOf<List<com.xxxx.emby_tv.data.model.MediaSourceInfoDto>>(emptyList()) }
+
     // 片头跳过相关状态
     val preferencesManager = remember { PreferencesManager(context) }
     var introStartMs by remember { mutableStateOf<Long?>(null) }
@@ -359,7 +371,10 @@ fun PlayerScreen(
                     }
                     DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        // 关闭 AudioTrack 系统变速路径：部分电视 HAL（实测 TCL/MStar）设置成功后
+                        // PCM 写入异常，系统会把倍速异步重置回 1.0（表现为倍速失效）。
+                        // 强制走 Sonic 软件变速，不依赖 HAL。
+                        .setEnableAudioTrackPlaybackParams(false)
                         // 保留 Sonic（倍速支持）并前置声道降混处理器
                         .setAudioProcessors(arrayOf(channelMixer, SonicAudioProcessor()))
                         .build()
@@ -368,7 +383,7 @@ fun PlayerScreen(
                     Log.e(AUDIO_RECOVERY_TAG, "构建降混音频管线失败，回落原生输出", e)
                     DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                        .setEnableAudioTrackPlaybackParams(false)
                         .build()
                 }
             }
@@ -501,6 +516,150 @@ fun PlayerScreen(
     }
 
     var player by remember { mutableStateOf(buildPlayer()) }
+
+    // ===== 外部播放器统一拉起 + 进度回传 =====
+    // pkg 语义：null=使用偏好设置的默认播放器；""=系统选择器；非空=指定包名
+    // Zidoo 设备上走官方控制 API（直链推送 + 断点续播 + 进度轮询回传）
+    var zidooMonitorActive by remember { mutableStateOf(false) }
+
+    fun launchZidooPlayer(url: String): Boolean {
+        if (zidooMonitorActive) return true
+        zidooMonitorActive = true
+        try {
+            player.pause()
+            player.stop()
+        } catch (_: Exception) {
+        }
+        scope.launch(Dispatchers.IO) {
+            var lastPosition = position
+            try {
+                // 上报拉起时进度
+                playerViewModel.reportProgress(
+                    mediaId = mediaId, media = media, position = position,
+                    selectedSubtitleIndex = selectedSubtitleIndex,
+                    selectedAudioIndex = selectedAudioIndex, isPaused = true
+                )
+                if (!ZidooHelper.openFile(url)) {
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(
+                            context, context.getString(R.string.external_player_launch_failed),
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return@launch
+                }
+                // 等待播放器就绪后跳到续播位置
+                if (position > 0) {
+                    kotlinx.coroutines.delay(3000)
+                    ZidooHelper.seekTo(position)
+                }
+                // 轮询 Zidoo 播放状态，实时回传进度；播放会话结束（用户退出播放器）时上报停止
+                while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                    kotlinx.coroutines.delay(5000)
+                    val st = ZidooHelper.getPlayStatus() ?: break
+                    if (st.positionMs > 0) {
+                        lastPosition = st.positionMs
+                        playerViewModel.reportProgress(
+                            mediaId = mediaId, media = media, position = st.positionMs,
+                            selectedSubtitleIndex = selectedSubtitleIndex,
+                            selectedAudioIndex = selectedAudioIndex
+                        )
+                    }
+                    if (st.durationMs > 0 && st.positionMs >= st.durationMs - 5000) {
+                        break // 播放完成
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorHandler.logError("PlayerScreen", "Zidoo 播放监控异常", e)
+            } finally {
+                zidooMonitorActive = false
+                if (lastPosition > 0) {
+                    playerViewModel.reportStopped(
+                        mediaId = mediaId, media = media, position = lastPosition,
+                        selectedSubtitleIndex = selectedSubtitleIndex,
+                        selectedAudioIndex = selectedAudioIndex
+                    )
+                }
+            }
+        }
+        return true
+    }
+
+    // Intent 方式拉起外部播放器的结果回传（VLC/MX Player 退出时回传播放位置）
+    val externalPlayerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        // VLC/MX Player 等退出时会回传播放位置，同步到服务器保证"继续观看"进度正确
+        val returnedPos = ExternalPlayerHelper.extractReturnedPosition(result.data)
+        if (returnedPos != null && returnedPos > 0) {
+            position = returnedPos
+            playerViewModel.reportProgress(
+                mediaId = mediaId,
+                media = media,
+                position = returnedPos,
+                selectedSubtitleIndex = selectedSubtitleIndex,
+                selectedAudioIndex = selectedAudioIndex
+            )
+        }
+    }
+
+    fun launchViaIntent(url: String, targetPkg: String?): Boolean {
+        val intent = ExternalPlayerHelper.buildLaunchIntent(url, targetPkg, position)
+        // 指定包名在本机不可用时回退系统选择器
+        if (!targetPkg.isNullOrBlank()) {
+            try {
+                if (intent.resolveActivity(context.packageManager) == null) intent.setPackage(null)
+            } catch (_: Exception) {
+                intent.setPackage(null)
+            }
+        }
+        return try {
+            // 暂停内置播放并上报当前进度，交由外部播放器接管（经 launcher 拉起以接收退出位置回传）
+            player.pause()
+            playerViewModel.reportProgress(
+                mediaId = mediaId,
+                media = media,
+                position = position,
+                selectedSubtitleIndex = selectedSubtitleIndex,
+                selectedAudioIndex = selectedAudioIndex,
+                isPaused = true
+            )
+            externalPlayerLauncher.launch(intent)
+            true
+        } catch (e: Exception) {
+            ErrorHandler.logError("PlayerScreen", "拉起外部播放器失败", e)
+            scope.launch {
+                android.widget.Toast.makeText(
+                    context, context.getString(R.string.external_player_launch_failed),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            false
+        }
+    }
+
+    /**
+     * 外部播放器统一入口：
+     * Zidoo 设备走官方控制 API（DV 双层直通 + 进度完整回传），其余走 Intent 方式
+     */
+    fun launchExternalPlayer(pkg: String?): Boolean {
+        val url = ExternalPlayerHelper.buildPlayUrl(
+            media, mediaId, currentMediaSourceId, serverUrl, apiKey
+        )
+        if (url == null) {
+            scope.launch {
+                android.widget.Toast.makeText(
+                    context, context.getString(R.string.external_player_launch_failed),
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+            return false
+        }
+        if (ZidooHelper.isZidooDevice() && ZidooHelper.isApiAvailable()) {
+            return launchZidooPlayer(url)
+        }
+        return launchViaIntent(url, pkg ?: preferencesManager.preferredExternalPlayerPackage)
+    }
 
     // ===== 音频故障自动恢复（全程自动，无用户交互）=====
     // 0: 正常；1: 已用立体声安全模式重建过播放器；2: 已降级为无声播放
@@ -653,7 +812,8 @@ fun PlayerScreen(
                     if (position > 0) position * 10000 else playbackPositionTicks,
                     requestAudioIndex,
                     requestSubtitleIndex,
-                    true
+                    true,
+                    selectedMediaSourceId
                 )
 
                 if (mediaResult.mediaSources.isNullOrEmpty()) {
@@ -742,7 +902,8 @@ fun PlayerScreen(
                 if (position > 0) position * 10000 else playbackPositionTicks,
                 requestAudioIndex,
                 requestSubtitleIndex,
-                hasTriedTranscodeFallback || playbackCorrection == 1
+                hasTriedTranscodeFallback || playbackCorrection == 1,
+                selectedMediaSourceId
             )
 
             if (mediaResult.mediaSources.isNullOrEmpty()) {
@@ -764,7 +925,49 @@ fun PlayerScreen(
             // 更新收藏状态
             isFavorite = mediaInfoResult.userData?.isFavorite == true
 
-            val source = mediaResult.mediaSources.firstOrNull()
+            // 加载播放模式（剧集与电影分开保存，电影默认不循环）
+            val isSeriesContent =
+                mediaInfoResult.type == "Episode" || mediaInfoResult.seriesId != null
+            val modePrefs = context.getSharedPreferences("emby_tv_prefs", Context.MODE_PRIVATE)
+            playMode = if (isSeriesContent) {
+                modePrefs.getInt("play_mode", 0)
+            } else {
+                modePrefs.getInt("play_mode_movie", 2)
+            }
+
+            // 服务器返回完整片源列表时更新缓存（指定 MediaSourceId 时只返回单源，保留原列表）
+            if ((mediaResult.mediaSources?.size ?: 0) > 1) {
+                allMediaSources = mediaResult.mediaSources!!
+            } else if (allMediaSources.isEmpty()) {
+                allMediaSources = mediaResult.mediaSources ?: emptyList()
+            }
+
+            // 初次进入：自动选择片源。优先级：偏好策略（杜比视界/HDR/流畅优先）> 上次手动选择的片源名（仅默认排序时生效）
+            if (selectedMediaSourceId == null && allMediaSources.size > 1) {
+                val sourcePref = preferencesManager.sourcePreference
+                val preferredName = preferencesManager.preferredMediaSourceName
+                val autoPick = if (sourcePref != 3) {
+                    // 用户显式配置了策略时，策略优先，忽略历史手动选择记忆
+                    pickPreferredMediaSource(allMediaSources, sourcePref)
+                } else if (preferredName.isNotBlank()) {
+                    allMediaSources.firstOrNull { !it.name.isNullOrBlank() && it.name == preferredName }
+                } else null
+
+                val defaultId = mediaResult.mediaSources?.firstOrNull()?.id
+                if (autoPick?.id != null && autoPick.id != defaultId) {
+                    selectedMediaSourceId = autoPick.id
+                    playbackTrigger++
+                    return@LaunchedEffect
+                }
+            }
+
+            // 优先使用用户选择的媒体源（多版本切换），否则取服务器返回的第一个
+            val source = mediaResult.mediaSources.firstOrNull { it.id == selectedMediaSourceId }
+                ?: mediaResult.mediaSources.firstOrNull()
+            currentMediaSourceId = source?.id
+            // 切换片源后重新匹配会话信息
+            session = null
+            hasReportedPlaying = false
             val streams = source?.mediaStreams ?: emptyList()
             // 检测片头信息
             val introRange = IntroSkipHelper.detectIntroRange(source?.chapters)
@@ -816,6 +1019,23 @@ fun PlayerScreen(
     // 设置 MediaItem 和 字幕
     LaunchedEffect(videoUrl) {
         if (videoUrl != null) {
+            // 外部播放器偏好：1=总是 2=仅杜比视界，命中时不启动内置播放器，直接交给外部播放器
+            val externalMode = preferencesManager.externalPlayerMode
+            if (externalMode == 1 || externalMode == 2) {
+                val isDv = externalMode == 2 && ExternalPlayerHelper.isDolbyVision(
+                    ExternalPlayerHelper.getVideoStream(media, currentMediaSourceId)
+                )
+                if (externalMode == 1 || isDv) {
+                    val launched = launchExternalPlayer(null)
+                    if (launched) {
+                        player.stop()
+                        isBuffering = false
+                        return@LaunchedEffect
+                    }
+                    // 拉起失败则回落到内置播放器继续播
+                }
+            }
+
             val source = media.mediaSources?.firstOrNull()
             val mediaSourceId = source?.id ?: ""
 
@@ -1228,6 +1448,21 @@ fun PlayerScreen(
                     }
                     return
                 }
+                // 服务器限流（429）：明确提示并停止自动重试，避免重试风暴加剧限流
+                val httpStatusCode = generateSequence<Throwable>(error.cause) { it.cause }
+                    .filterIsInstance<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+                    .firstOrNull()?.responseCode
+                if (httpStatusCode == 429) {
+                    Log.w("PlayerScreen", "服务器限流(429)，停止自动重试")
+                    scope.launch {
+                        android.widget.Toast.makeText(
+                            context,
+                            context.getString(R.string.error_rate_limited),
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return
+                }
                 // 音频输出类错误 → 交给音频自动恢复（安全模式重建/无声降级），不消耗一次性的转码回退
                 val isAudioTrackError =
                     error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
@@ -1588,7 +1823,11 @@ fun PlayerScreen(
                         playMode = it
                         val prefs =
                             context.getSharedPreferences("emby_tv_prefs", Context.MODE_PRIVATE)
-                        prefs.edit().putInt("play_mode", it).apply()
+                        // 剧集与电影的播放模式分开保存
+                        val isSeriesContent =
+                            mediaInfo.type == "Episode" || mediaInfo.seriesId != null
+                        val key = if (isSeriesContent) "play_mode" else "play_mode_movie"
+                        prefs.edit().putInt(key, it).apply()
                     },
                     autoSkipIntro = autoSkipIntro,
                     onAutoSkipIntroChange = {
@@ -1677,6 +1916,25 @@ fun PlayerScreen(
                     },
                     subtitleTimeOffsetMs = subtitleTimeOffsetMs,
                     onSubtitleTimeOffsetChange = { subtitleTimeOffsetMs = it },
+                    currentMediaSourceId = currentMediaSourceId,
+                    allMediaSources = allMediaSources,
+                    onSourceSelect = { source ->
+                        if (source.id != null && source.id != currentMediaSourceId) {
+                            selectedMediaSourceId = source.id
+                            // 记住选择的片源名，下次播放同类多版本影片时自动匹配
+                            source.name?.takeIf { it.isNotBlank() }?.let {
+                                preferencesManager.preferredMediaSourceName = it
+                            }
+                            // 重置轨道选择，切换后使用新版本的默认音轨/字幕
+                            selectedAudioIndex = -1
+                            selectedSubtitleIndex = -99
+                            hasTriedTranscodeFallback = false
+                            playbackTrigger++
+                        }
+                    },
+                    onLaunchExternalPlayer = { pkg ->
+                        launchExternalPlayer(pkg)
+                    },
                     isFavorite = isFavorite,
                     onToggleFavorite = {
                         isFavorite = !isFavorite

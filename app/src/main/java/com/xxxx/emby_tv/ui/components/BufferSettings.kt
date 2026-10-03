@@ -241,7 +241,7 @@ fun BufferSettingsTab(
 }
 
 @Composable
-private fun BufferSettingRow(
+fun BufferSettingRow(
     nameResId: Int,
     descResId: Int,
     recommendResId: Int,

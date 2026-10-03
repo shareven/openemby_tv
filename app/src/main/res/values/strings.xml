@@ -94,6 +94,7 @@
     <string name="loop_list">Loop List</string>
     <string name="loop_single">Loop Single</string>
     <string name="loop_off">Loop Off</string>
+    <string name="loop_playback">Loop Playback</string>
     <string name="info">Info</string>
     <string name="episodes">Episodes</string>
     <string name="subtitles">Subtitles</string>
@@ -262,4 +263,25 @@
     <string name="filter_watched">Watched</string>
     <string name="filter_unwatched">Unwatched</string>
     <string name="filter_favorite">Favorite</string>
+
+    <!-- Media Version / External Player -->
+    <string name="media_source">Source</string>
+    <string name="external_player">External Player</string>
+    <string name="external_player_system">System chooser</string>
+    <string name="external_player_none_found">No external player found</string>
+    <string name="external_player_launch_failed">Failed to launch external player</string>
+    <string name="error_rate_limited">Server rate limit or too many active devices. Try again later or stop playback on other devices</string>
+
+    <!-- Playback Settings -->
+    <string name="playback_settings">Playback Settings</string>
+    <string name="external_player_preference">External Player Preference</string>
+    <string name="external_player_never">Never (use built-in player)</string>
+    <string name="external_player_always">Always use external player</string>
+    <string name="external_player_dv_only">Only Dolby Vision uses external player</string>
+    <string name="default_external_player">Default External Player</string>
+    <string name="source_preference">Version Preference</string>
+    <string name="source_pref_dv_first">Dolby Vision first</string>
+    <string name="source_pref_hdr_first">HDR first</string>
+    <string name="source_pref_smooth">Smooth first (lower bitrate)</string>
+    <string name="source_pref_default">Default order</string>
 </resources>
