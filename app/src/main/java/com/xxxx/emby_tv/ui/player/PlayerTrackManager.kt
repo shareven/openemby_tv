@@ -22,12 +22,15 @@ object PlayerTrackManager {
      * @param subtitleTracks Emby 返回的字幕轨道列表
      * @param selectedIndex 要选择的字幕 index
      * @param currentTracks 当前轨道信息
+     * @param configRoutedIndices 改由外挂配置轨承载的字幕索引集合
+     *        （外置文件 / 内嵌轨因 zlib 压缩改走 Stream.srt）
      */
     fun selectSubtitle(
         player: ExoPlayer,
         subtitleTracks: List<MediaStreamDto>,
         selectedIndex: Int,
-        currentTracks: Tracks?
+        currentTracks: Tracks?,
+        configRoutedIndices: Set<Int> = emptySet()
     ) {
         if (subtitleTracks.isEmpty()) return
 
@@ -51,7 +54,9 @@ object PlayerTrackManager {
         val targetOrdinalIndex = subtitleTracks.indexOf(targetTrack)
         val targetLabel = targetTrack.displayTitle
         val targetIndex = targetTrack.index?.toString() ?: ""
-        val isLoadedViaConfig = targetTrack.supportsExternalStream == true || targetTrack.isExternal == true
+        val isConfigRouted = targetTrack.index in configRoutedIndices
+        val isLoadedViaConfig = targetTrack.supportsExternalStream == true
+                || targetTrack.isExternal == true || isConfigRouted
 
 //        Log.d(TAG, "Subtitle Selection: Target [EmbyIndex:$targetIndex, Label:$targetLabel, OrdinalIndex:$targetOrdinalIndex, LoadedViaConfig:$isLoadedViaConfig]")
 
@@ -72,40 +77,23 @@ object PlayerTrackManager {
             }
         }
 
-//        if (isLoadedViaConfig) {
-//            // 策略1：使用唯一 Label 格式 "Label [Index]" 匹配
-//            val uniqueTargetLabel = "$targetLabel [$targetIndex]"
-//            outer@ for (group in trackGroups) {
-//                for (i in 0 until group.length) {
-//                    val format = group.getTrackFormat(i)
-//                    if (format.label == uniqueTargetLabel) {
-//                        parametersBuilder.setOverrideForType(
-//                            TrackSelectionOverride(group.mediaTrackGroup, i)
-//                        )
-//                        isMatched = true
-////                        Log.d(TAG, "Matched subtitle by UniqueLabel: ${format.label} -> ID:${format.id}")
-//                        break@outer
-//                    }
-//                }
-//            }
-//
-//            // 策略1.1：ID 包含 index 匹配（回退）
-//            if (!isMatched) {
-//                outer2@ for (group in trackGroups) {
-//                    for (i in 0 until group.length) {
-//                        val format = group.getTrackFormat(i)
-//                        if (format.id?.endsWith(":$targetIndex") == true || format.id == targetIndex) {
-//                            parametersBuilder.setOverrideForType(
-//                                TrackSelectionOverride(group.mediaTrackGroup, i)
-//                            )
-//                            isMatched = true
-////                            Log.d(TAG, "Matched subtitle by ID contains: ${format.id} -> Label:${format.label}")
-//                            break@outer2
-//                        }
-//                    }
-//                }
-//            }
-//        }
+        // 策略1：外挂配置轨按唯一 Label（"Label [Index]"，与 SubtitleConfigBuilder 一致）精确匹配。
+        // 必须先于顺序匹配：改走服务器提取的字幕轨同时存在内嵌原轨时，
+        // 顺序匹配会命中（无法解析的）内嵌轨。
+        if (isLoadedViaConfig) {
+            val uniqueTargetLabel = "$targetLabel [$targetIndex]"
+            outer@ for (group in trackGroups) {
+                for (i in 0 until group.length) {
+                    if (group.getTrackFormat(i).label == uniqueTargetLabel) {
+                        parametersBuilder.setOverrideForType(
+                            TrackSelectionOverride(group.mediaTrackGroup, i)
+                        )
+                        isMatched = true
+                        break@outer
+                    }
+                }
+            }
+        }
 
         // 策略2：顺序匹配（用于直接播放的内嵌字幕）
         if (!isMatched && isLoadedViaConfig && targetOrdinalIndex >= 0) {

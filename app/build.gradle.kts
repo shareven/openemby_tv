@@ -3,7 +3,6 @@ import java.io.FileInputStream
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -26,8 +25,8 @@ android {
         applicationId = "com.xxxx.emby_tv"
         minSdk = 23
         targetSdk = 36
-        versionName = "2.0.24"
-         versionCode = 224
+        versionName = "2.0.25"
+         versionCode = 225
 //        versionCode = 92
 
     }
@@ -36,9 +35,7 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
+    // AGP 9 内置 Kotlin：jvmTarget 自动与 targetCompatibility 对齐，无需 kotlinOptions
 
      signingConfigs {
         create("release") {
@@ -80,7 +77,7 @@ dependencies {
 
     // 3. Media3 ExoPlayer (2025年最新稳定版 1.5.1)
     // 该版本优化了 4K 杜比视界 (Dolby Vision) 的硬件协商逻辑
-    val media3Version = "1.9.0"
+    val media3Version = "1.11.1"
     implementation("androidx.media3:media3-exoplayer:$media3Version")
     implementation("androidx.media3:media3-ui:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")

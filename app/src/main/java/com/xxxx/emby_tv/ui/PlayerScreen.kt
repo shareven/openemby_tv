@@ -87,6 +87,7 @@ import com.xxxx.emby_tv.ui.components.SkipIntroButton
 import com.xxxx.emby_tv.ui.components.getAudioTrack
 import com.xxxx.emby_tv.ui.components.getVideoTrack
 
+import com.xxxx.emby_tv.ui.player.MkvCompressedSubtitleDetector
 import com.xxxx.emby_tv.ui.player.PlayerTrackManager
 import com.xxxx.emby_tv.ui.player.SubtitleConfigBuilder
 import com.xxxx.emby_tv.ui.player.SubtitleOffsetController
@@ -231,6 +232,9 @@ fun PlayerScreen(
     // 用于跟踪是否已经尝试过转码回退
     var hasTriedTranscodeFallback by remember { mutableStateOf(false) }
     var currentTracks by remember { mutableStateOf<Tracks?>(null) }
+
+    // 因 MKV zlib 压缩等原因改由 Emby 服务器提取外挂 SRT 的字幕索引集合
+    var configRoutedSubtitleIndices by remember { mutableStateOf(setOf<Int>()) }
 
     // 多版本片源切换：null 表示使用服务器返回的默认源
     var selectedMediaSourceId by remember { mutableStateOf<String?>(null) }
@@ -491,8 +495,7 @@ fun PlayerScreen(
             )
         )
 
-    val mediaSourceFactory = DefaultMediaSourceFactory(context)
-        .setDataSourceFactory(dataSourceFactory)
+    val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
     // ExoPlayer 构建函数（音频自动恢复时需要整体重建播放器）
     fun buildPlayer(): ExoPlayer {
@@ -1039,6 +1042,24 @@ fun PlayerScreen(
             val source = media.mediaSources?.firstOrNull()
             val mediaSourceId = source?.id ?: ""
 
+            // 检测 MKV 内嵌字幕轨是否被 zlib 压缩（media3 的 MatroskaExtractor 不支持
+            // MKV 内容压缩，压缩轨会整轨零字幕）。命中的轨改由 Emby 服务器提取 SRT 外挂。
+            var routedIndices = configRoutedSubtitleIndices
+            val playbackUrl: String = videoUrl ?: return@LaunchedEffect
+            val isMkv = playbackUrl.contains(".mkv", ignoreCase = true)
+            val hasEmbeddedTextSubs = subtitleTracks.any { it.isExternal != true }
+            if (isMkv && hasEmbeddedTextSubs) {
+                val compressedOrdinals = MkvCompressedSubtitleDetector.detect(playbackUrl, okHttpClient)
+                if (compressedOrdinals.isNotEmpty()) {
+                    val embeddedSubs = subtitleTracks.filter { it.isExternal != true }
+                    routedIndices = compressedOrdinals
+                        .mapNotNull { o -> embeddedSubs.getOrNull(o)?.index }
+                        .toSet()
+                    configRoutedSubtitleIndices = routedIndices
+                    Log.w("PlayerScreen", "compressed subtitle tracks routed to server srt: $routedIndices")
+                }
+            }
+
             // 使用 SubtitleConfigBuilder 构建字幕配置
             val subtitleConfigs = SubtitleConfigBuilder.buildSubtitleConfigs(
                 subtitleTracks = subtitleTracks,
@@ -1046,7 +1067,8 @@ fun PlayerScreen(
                 mediaId = mediaId,
                 mediaSourceId = mediaSourceId,
                 apiKey = apiKey,
-                selectedSubtitleIndex = selectedSubtitleIndex
+                selectedSubtitleIndex = selectedSubtitleIndex,
+                serverDeliveredIndices = routedIndices
             )
 
             val mediaItemBuilder = MediaItem.Builder()
@@ -1077,12 +1099,13 @@ fun PlayerScreen(
     }
 
     // 更新选中字幕 - 使用 PlayerTrackManager
-    LaunchedEffect(selectedSubtitleIndex, subtitleTracks, currentTracks) {
+    LaunchedEffect(selectedSubtitleIndex, subtitleTracks, currentTracks, configRoutedSubtitleIndices) {
         PlayerTrackManager.selectSubtitle(
             player,
             subtitleTracks,
             selectedSubtitleIndex,
-            currentTracks
+            currentTracks,
+            configRoutedSubtitleIndices
         )
     }
 

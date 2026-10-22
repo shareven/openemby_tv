@@ -24,6 +24,8 @@ object SubtitleConfigBuilder {
      * @param mediaSourceId 媒体源ID
      * @param apiKey API密钥
      * @param selectedSubtitleIndex 当前选中的字幕索引
+     * @param serverDeliveredIndices 需要 Emby 服务器提取外挂的字幕索引集合
+     *        （如内嵌轨被 zlib 压缩，media3 无法解析，只能改走 Stream.srt）
      * @return 字幕配置列表
      */
     fun buildSubtitleConfigs(
@@ -32,7 +34,8 @@ object SubtitleConfigBuilder {
         mediaId: String,
         mediaSourceId: String,
         apiKey: String,
-        selectedSubtitleIndex: Int
+        selectedSubtitleIndex: Int,
+        serverDeliveredIndices: Set<Int> = emptySet()
     ): List<MediaItem.SubtitleConfiguration> {
         val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
 
@@ -45,8 +48,8 @@ object SubtitleConfigBuilder {
             val label = track.displayTitle ?: "Subtitle"
             val lang = track.language ?: "und"
 
-            // 判断是否可以通过URL加载（外置或支持外部流）
-            val isLoadableSubtitle =  track.isExternal == true
+            // 判断是否可以通过URL加载（外置文件，或内嵌轨因压缩等原因需服务器提取）
+            val isLoadableSubtitle = track.isExternal == true || index in serverDeliveredIndices
 
 //            Log.d(TAG, "Track[$index]: Codec=$codec, IsExternal=${track.isExternal}, SupportsExternal=${track.supportsExternalStream}, Loadable=$isLoadableSubtitle")
 
