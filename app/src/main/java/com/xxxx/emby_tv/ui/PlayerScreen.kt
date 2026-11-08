@@ -119,6 +119,7 @@ private const val SUBTITLE_TOP_RESERVED_FRACTION = 0.12f
 // 重启 APP 后自动重试原生多声道。
 private var audioSafeModeChannels = -1
 private const val AUDIO_RECOVERY_TAG = "AudioRecovery"
+private const val SPEED_TUNNEL_TAG = "SpeedTunnel"
 
 /**
  * 手写声道混合矩阵。不使用 ChannelMixingMatrix.create()：
@@ -736,20 +737,30 @@ fun PlayerScreen(
     LaunchedEffect(player, playbackSpeed, isTunnelingSafe) {
         val wantTunneling = isTunnelingSafe && playbackSpeed == 1.0f
         val currentParams = player.trackSelectionParameters
+        var toggledTunneling = false
         if (currentParams is DefaultTrackSelector.Parameters &&
             currentParams.tunnelingEnabled != wantTunneling
         ) {
             player.trackSelectionParameters = currentParams.buildUpon()
                 .setTunnelingEnabled(wantTunneling)
                 .build()
+            toggledTunneling = true
+            Log.i(
+                SPEED_TUNNEL_TAG,
+                "倍速=${playbackSpeed}x，切换隧道模式: ${currentParams.tunnelingEnabled} -> $wantTunneling"
+            )
         }
-        // 关闭/开启隧道会触发轨道重选与渲染器异步重建，期间 setPlaybackSpeed 可能被
-        // 旧配置重置回 1.0，轮询重试直到倍速真正生效（渲染器重建通常 1~2 秒内完成）
-        var attempts = 0
-        while (isActive && attempts < 25 && player.playbackParameters.speed != playbackSpeed) {
+        // 关闭/开启隧道会触发轨道重选与渲染器异步重建（电视上 DV 解码重建较慢），
+        // 期间 setPlaybackSpeed 可能被旧配置异步重置回 1.0，而 player.playbackParameters
+        // 的读回值又可能短暂显示"已生效"（重置尚未派发，假阳性），不能靠它判断成败。
+        // 因此在窗口期内无条件持续重发倍速，保证最后一次调用落在重建完成后的最终配置上。
+        if (toggledTunneling || playbackSpeed != 1.0f) {
+            repeat(40) {
+                player.setPlaybackSpeed(playbackSpeed)
+                delay(250)
+            }
+        } else {
             player.setPlaybackSpeed(playbackSpeed)
-            delay(200)
-            attempts++
         }
     }
 
@@ -1728,7 +1739,10 @@ fun PlayerScreen(
             // 2. Full Info Overlay Layer (only when isShowInfo)
             if (isShowInfo && !isPlaying) {
                 PlayerOverlay(
-                    isTunnelingSafe = isTunnelingSafe,
+                    // 显示实际生效的隧道状态（而非设备能力标志）：
+                    // 倍速 != 1.0x 时会动态关闭隧道，统计面板需反映真实状态
+                    isTunnelingSafe = (player.trackSelectionParameters as? DefaultTrackSelector.Parameters)
+                        ?.tunnelingEnabled == true,
                     mediaInfo = mediaInfo,
                     mediaSource = media.mediaSources?.firstOrNull(),
                     session = session,
