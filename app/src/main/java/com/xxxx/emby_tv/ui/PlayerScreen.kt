@@ -317,7 +317,8 @@ fun PlayerScreen(
 
                 setParameters(
                     baseParameters.buildUpon()
-                        .setTunnelingEnabled(isTunnelingSafe)
+                        // 倍速与隧道模式互斥（见下方 LaunchedEffect 注释），非 1.0 倍速时禁用隧道
+                        .setTunnelingEnabled(isTunnelingSafe && playbackSpeed == 1.0f)
                         .build()
                 )
             }
@@ -726,8 +727,30 @@ fun PlayerScreen(
     }
 
     // 应用倍速（player 重建后也需重新应用）
-    LaunchedEffect(player, playbackSpeed) {
-        player.setPlaybackSpeed(playbackSpeed)
+    // 倍速与隧道模式互斥：media3 在隧道模式下不会应用 Sonic 软件变速
+    // （DefaultAudioSink#shouldApplyAudioProcessorPlaybackParameters 返回 false 并把倍速
+    // 重置回 1.0），而本应用为规避 TCL/MStar HAL 把倍速异步重置的缺陷又关闭了
+    // AudioTrack 系统变速路径（setEnableAudioTrackPlaybackParams(false)），
+    // 两条变速路径同时失效会导致电视端倍速静默无效（模拟器无隧道声明故不受影响）。
+    // 因此非 1.0 倍速时必须关闭隧道模式，恢复 1.0 后再恢复隧道。
+    LaunchedEffect(player, playbackSpeed, isTunnelingSafe) {
+        val wantTunneling = isTunnelingSafe && playbackSpeed == 1.0f
+        val currentParams = player.trackSelectionParameters
+        if (currentParams is DefaultTrackSelector.Parameters &&
+            currentParams.tunnelingEnabled != wantTunneling
+        ) {
+            player.trackSelectionParameters = currentParams.buildUpon()
+                .setTunnelingEnabled(wantTunneling)
+                .build()
+        }
+        // 关闭/开启隧道会触发轨道重选与渲染器异步重建，期间 setPlaybackSpeed 可能被
+        // 旧配置重置回 1.0，轮询重试直到倍速真正生效（渲染器重建通常 1~2 秒内完成）
+        var attempts = 0
+        while (isActive && attempts < 25 && player.playbackParameters.speed != playbackSpeed) {
+            player.setPlaybackSpeed(playbackSpeed)
+            delay(200)
+            attempts++
+        }
     }
 
     // 字幕时间偏移：接管字幕渲染（内置 subtitleView 已隐藏，由 overlay SubtitleView 显示）
