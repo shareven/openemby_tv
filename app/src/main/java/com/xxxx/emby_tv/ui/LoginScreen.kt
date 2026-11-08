@@ -27,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.xxxx.emby_tv.ui.components.TvInputDialog
+import com.xxxx.emby_tv.ui.components.DoubleBackExitHandler
+import com.xxxx.emby_tv.data.local.PreferencesManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -53,6 +55,9 @@ fun LoginScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val themeColor = ThemeColorManager.getThemeColorById(context, mainViewModel.currentThemeId)
+
+    // 按两次返回退出APP（可在 按键设置 中开启）；未开启时保持默认的单次返回退出
+    val doubleBackToExit = PreferencesManager(context).doubleBackToExit
 
     // 解析 savedServerUrl 的辅助函数
     fun parseServerUrl(url: String?): Triple<String, String, String> {
@@ -182,6 +187,7 @@ fun LoginScreen(
         )
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部状态栏
         TopStatusBar(
@@ -397,6 +403,9 @@ fun LoginScreen(
         }
     }
 
+    DoubleBackExitHandler(doubleBackToExit)
+    }
+
     if (showMenu) {
         MenuDialog(
             needUpdate = mainViewModel.needUpdate,
@@ -416,6 +425,10 @@ fun LoginScreen(
             onProxySettings = {
                 showMenu = false
                 navController.navigate("proxy_settings")
+            },
+            onKeySettings = {
+                showMenu = false
+                navController.navigate("key_settings")
             },
             isShowLogout = false
         )

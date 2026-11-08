@@ -30,6 +30,7 @@ import com.xxxx.emby_tv.ui.HomeScreen
 import com.xxxx.emby_tv.ui.UpdateScreen
 import com.xxxx.emby_tv.ui.PlaybackSettingsScreen
 import com.xxxx.emby_tv.ui.ProxySettingsScreen
+import com.xxxx.emby_tv.ui.KeySettingsScreen
 import com.xxxx.emby_tv.ui.SearchScreen
 import com.xxxx.emby_tv.ui.components.BuildGradientBackground
 import com.xxxx.emby_tv.ui.components.Loading
@@ -200,6 +201,13 @@ fun EmbyTvApp() {
                     composable("proxy_settings") {
                         ProxySettingsScreen(
                             mainViewModel = mainViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+
+                    // 按键设置页面
+                    composable("key_settings") {
+                        KeySettingsScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }

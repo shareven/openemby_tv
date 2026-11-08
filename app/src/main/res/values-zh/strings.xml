@@ -242,6 +242,12 @@
     <string name="proxy_status_off">代理：已关闭</string>
     <string name="playing">播放中</string>
 
+    <!-- 按键设置 -->
+    <string name="key_settings">按键设置</string>
+    <string name="back_exit_double">按两次返回退出APP</string>
+    <string name="back_exit_double_desc">开启后，在登录页或首页按一次返回键会提示"再按一次退出APP"，2秒内再按一次才会退出。</string>
+    <string name="press_back_again_to_exit">再按一次退出APP</string>
+
     <string name="sort">排序</string>
     <string name="sort_name">名称</string>
     <string name="sort_premiere_date">上映日期</string>

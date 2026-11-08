@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwitchAccount
@@ -51,6 +52,7 @@ fun MenuDialog(
     onSearch: (() -> Unit)? = null,
     onPlaybackSettings: (() -> Unit)? = null,
     onProxySettings: (() -> Unit)? = null,
+    onKeySettings: (() -> Unit)? = null,
     isShowLogout: Boolean = true
 ) {
     val showThemeSelection = remember { mutableStateOf(false) }
@@ -180,6 +182,18 @@ fun MenuDialog(
                                     text = stringResource(R.string.proxy_settings),
                                     icon = Icons.Filled.Settings,
                                     onClick = { onProxySettings(); onDismiss() },
+                                    primaryColor = currentPrimaryColor
+                                )
+                            }
+                        }
+
+                        // 按键设置项（位于代理设置下方）
+                        if (onKeySettings != null) {
+                            menuItems.add {
+                                MenuListItem(
+                                    text = stringResource(R.string.key_settings),
+                                    icon = Icons.Filled.Keyboard,
+                                    onClick = { onKeySettings(); onDismiss() },
                                     primaryColor = currentPrimaryColor
                                 )
                             }

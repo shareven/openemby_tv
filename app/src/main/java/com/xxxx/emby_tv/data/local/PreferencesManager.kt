@@ -86,6 +86,12 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_PROXY_PASSWORD, "") ?: ""
         set(value) = prefs.edit().putString(KEY_PROXY_PASSWORD, value).apply()
 
+    // === 按键设置 ===
+    // true = 登录页/首页需在 2 秒内按两次返回键才退出 APP
+    var doubleBackToExit: Boolean
+        get() = prefs.getBoolean(KEY_DOUBLE_BACK_TO_EXIT, false)
+        set(value) = prefs.edit().putBoolean(KEY_DOUBLE_BACK_TO_EXIT, value).apply()
+
     // === 片头跳过设置 ===
 
     var autoSkipIntro: Boolean
@@ -211,6 +217,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_PREFERRED_EXTERNAL_PLAYER_PKG = "preferred_external_player_pkg"
         private const val KEY_SOURCE_PREFERENCE = "source_preference"
         private const val KEY_AUTO_SKIP_INTRO = "auto_skip_intro"
+        private const val KEY_DOUBLE_BACK_TO_EXIT = "double_back_to_exit"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
         private const val KEY_SUBTITLE_BOTTOM_PADDING = "subtitle_bottom_padding"
 

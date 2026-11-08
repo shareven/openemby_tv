@@ -18,7 +18,9 @@ import androidx.tv.material3.*
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import androidx.compose.ui.res.stringResource
 import com.xxxx.emby_tv.R
+import com.xxxx.emby_tv.data.local.PreferencesManager
 import com.xxxx.emby_tv.data.repository.EmbyRepository
+import com.xxxx.emby_tv.ui.components.DoubleBackExitHandler
 import com.xxxx.emby_tv.ui.components.BuildItem
 import com.xxxx.emby_tv.ui.components.Loading
 import com.xxxx.emby_tv.ui.components.MenuDialog
@@ -40,6 +42,9 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
+
+    // 按两次返回退出APP（可在 按键设置 中开启）；未开启时保持默认的单次返回退出
+    val doubleBackToExit = PreferencesManager(context).doubleBackToExit
 
     // 获取 serverUrl
     val repository = remember { EmbyRepository.getInstance(context) }
@@ -96,6 +101,10 @@ fun HomeScreen(
             onProxySettings = {
                 showMenu = false
                 navController.navigate("proxy_settings")
+            },
+            onKeySettings = {
+                showMenu = false
+                navController.navigate("key_settings")
             }
         )
     }
@@ -122,6 +131,7 @@ fun HomeScreen(
         null
     }
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部状态栏
         TopStatusBar(
@@ -225,6 +235,9 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    DoubleBackExitHandler(doubleBackToExit)
     }
 }
 

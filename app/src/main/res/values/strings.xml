@@ -242,6 +242,12 @@
     <string name="proxy_status_off">Proxy: OFF</string>
     <string name="playing">Playing</string>
 
+    <!-- Key Settings -->
+    <string name="key_settings">Key Settings</string>
+    <string name="back_exit_double">Press back twice to exit</string>
+    <string name="back_exit_double_desc">On the login or home page, pressing back once shows a hint "Press back again to exit". Only pressing back again within 2 seconds will exit the app.</string>
+    <string name="press_back_again_to_exit">Press back again to exit</string>
+
     <string name="sort">Sort</string>
     <string name="sort_name">Name</string>
     <string name="sort_premiere_date">Premiere Date</string>
