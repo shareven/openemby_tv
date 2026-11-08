@@ -53,12 +53,14 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import androidx.compose.ui.res.stringResource
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.common.util.Util
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -176,6 +178,39 @@ private fun buildChannelMixingMatrix(inputChannels: Int, outputChannels: Int): C
     }
     return ChannelMixingMatrix(inputChannels, outputChannels, coefficients)
 }
+
+/**
+ * 倍速模式下屏蔽编码直通的 AudioSink 包装器。
+ *
+ * 部分电视（如 TCL MT5879）对 TrueHD/AC3/EAC3 走音频直通（OFFLOAD bitstream）输出，
+ * media3 对编码流无法应用 Sonic 软件变速，表现为倍速参数被接受但实际播放恒为 1.0x。
+ * 非 1.0 倍速时用本包装器拒绝所有非 PCM 格式，强制渲染器走解码（FFmpeg 扩展）→ PCM →
+ * Sonic 变速路径；恢复 1.0 倍速后重建回原生直通能力的播放器。
+ *
+ * 注：media3 的 setAudioCapabilities 在 Builder 携带 context 时会被忽略（内部传 null），
+ * 无法通过该 API 动态收窄直通能力，只能在构建时用包装器实现。
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+private class SpeedPassthroughBlockingSink(
+    wrapped: AudioSink,
+    private val blockPassthrough: Boolean
+) : ForwardingAudioSink(wrapped) {
+
+    override fun supportsFormat(format: Format): Boolean {
+        if (blockPassthrough && !Util.isEncodingLinearPcm(format.pcmEncoding)) {
+            return false
+        }
+        return super.supportsFormat(format)
+    }
+
+    override fun getFormatSupport(format: Format): Int {
+        if (blockPassthrough && !Util.isEncodingLinearPcm(format.pcmEncoding)) {
+            return AudioSink.SINK_FORMAT_UNSUPPORTED
+        }
+        return super.getFormatSupport(format)
+    }
+}
+
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -262,6 +297,10 @@ fun PlayerScreen(
     // 倍速设置 - 从 PreferencesManager 加载保存的值
     var playbackSpeed by remember(preferencesManager.playbackSpeed) { mutableFloatStateOf(preferencesManager.playbackSpeed) }
 
+    // 倍速专用 PCM 模式：非 1.0 倍速时屏蔽编码直通（直通流无法 Sonic 变速），
+    // 需用仅 PCM 的音频管线构建播放器；初值与已保存倍速一致，避免进入时立即重建
+    var speedPcmMode by remember { mutableStateOf(preferencesManager.playbackSpeed != 1.0f) }
+
     // 字幕位置设置 - 从 PreferencesManager 加载保存的值
     var subtitleBottomPadding by remember(preferencesManager.subtitleBottomPadding) { mutableFloatStateOf(preferencesManager.subtitleBottomPadding) }
 
@@ -336,7 +375,7 @@ fun PlayerScreen(
      * 在部分电视上严重虚高（实测 TCL 报 10），因此以 AudioDeviceInfo 上各输出设备的
      * 实际 PCM 声道数为准，两者取小。
      */
-    fun createRenderersFactory(): DefaultRenderersFactory {
+    fun createRenderersFactory(blockPassthrough: Boolean = false): DefaultRenderersFactory {
         val reportedMaxChannels =
             AudioCapabilities.getCapabilities(context).maxChannelCount.coerceIn(2, 8)
         val audioManager =
@@ -375,22 +414,28 @@ fun PlayerScreen(
                             buildChannelMixingMatrix(inputChannels, outputChannels)
                         )
                     }
-                    DefaultAudioSink.Builder(context)
-                        .setEnableFloatOutput(enableFloatOutput)
-                        // 关闭 AudioTrack 系统变速路径：部分电视 HAL（实测 TCL/MStar）设置成功后
-                        // PCM 写入异常，系统会把倍速异步重置回 1.0（表现为倍速失效）。
-                        // 强制走 Sonic 软件变速，不依赖 HAL。
-                        .setEnableAudioTrackPlaybackParams(false)
-                        // 保留 Sonic（倍速支持）并前置声道降混处理器
-                        .setAudioProcessors(arrayOf(channelMixer, SonicAudioProcessor()))
-                        .build()
+                    SpeedPassthroughBlockingSink(
+                        DefaultAudioSink.Builder(context)
+                            .setEnableFloatOutput(enableFloatOutput)
+                            // 关闭 AudioTrack 系统变速路径：部分电视 HAL（实测 TCL/MStar）设置成功后
+                            // PCM 写入异常，系统会把倍速异步重置回 1.0（表现为倍速失效）。
+                            // 强制走 Sonic 软件变速，不依赖 HAL。
+                            .setEnableAudioTrackPlaybackParams(false)
+                            // 保留 Sonic（倍速支持）并前置声道降混处理器
+                            .setAudioProcessors(arrayOf(channelMixer, SonicAudioProcessor()))
+                            .build(),
+                        blockPassthrough
+                    )
                 } catch (e: Exception) {
                     // 兜底：任何矩阵/构建异常都回落到原生 sink，绝不影响进入播放页
                     Log.e(AUDIO_RECOVERY_TAG, "构建降混音频管线失败，回落原生输出", e)
-                    DefaultAudioSink.Builder(context)
-                        .setEnableFloatOutput(enableFloatOutput)
-                        .setEnableAudioTrackPlaybackParams(false)
-                        .build()
+                    SpeedPassthroughBlockingSink(
+                        DefaultAudioSink.Builder(context)
+                            .setEnableFloatOutput(enableFloatOutput)
+                            .setEnableAudioTrackPlaybackParams(false)
+                            .build(),
+                        blockPassthrough
+                    )
                 }
             }
         }.apply {
@@ -501,7 +546,7 @@ fun PlayerScreen(
 
     // ExoPlayer 构建函数（音频自动恢复时需要整体重建播放器）
     fun buildPlayer(): ExoPlayer {
-        return ExoPlayer.Builder(context, createRenderersFactory())
+        return ExoPlayer.Builder(context, createRenderersFactory(blockPassthrough = speedPcmMode))
             .setMediaSourceFactory(mediaSourceFactory)
             .setTrackSelector(createTrackSelector())
             .setLoadControl(createLoadControl())
@@ -728,35 +773,70 @@ fun PlayerScreen(
     }
 
     // 应用倍速（player 重建后也需重新应用）
-    // 倍速与隧道模式互斥：media3 在隧道模式下不会应用 Sonic 软件变速
-    // （DefaultAudioSink#shouldApplyAudioProcessorPlaybackParameters 返回 false 并把倍速
-    // 重置回 1.0），而本应用为规避 TCL/MStar HAL 把倍速异步重置的缺陷又关闭了
-    // AudioTrack 系统变速路径（setEnableAudioTrackPlaybackParams(false)），
-    // 两条变速路径同时失效会导致电视端倍速静默无效（模拟器无隧道声明故不受影响）。
-    // 因此非 1.0 倍速时必须关闭隧道模式，恢复 1.0 后再恢复隧道。
+    // 电视端倍速失效的两条根因（media3 中 Sonic 软件变速仅对「非隧道 + PCM」生效）：
+    // 1. 隧道模式：shouldApplyAudioProcessorPlaybackParameters 返回 false，倍速被重置 1.0
+    //    → 非 1.0 倍速时关闭隧道，恢复 1.0 后再开
+    // 2. 编码直通（TrueHD/AC3/EAC3 bitstream，如 TCL MT5879 对 DV+TrueHD 片源）：
+    //    编码流无法 Sonic 变速，倍速参数被接受但实际恒为 1.0
+    //    → 非 1.0 倍速时用屏蔽直通的 PCM 音频管线整体重建播放器（强制 FFmpeg 解码）
+    // 另：渲染器重建期间 setPlaybackSpeed 可能被旧配置异步重置回 1.0，且读回值存在
+    // 假阳性，故窗口期内无条件持续重发，保证最后一次落在最终配置上。
     LaunchedEffect(player, playbackSpeed, isTunnelingSafe) {
+        val wantForcePcm = playbackSpeed != 1.0f
         val wantTunneling = isTunnelingSafe && playbackSpeed == 1.0f
+        Log.i(
+            SPEED_TUNNEL_TAG,
+            "倍速效果触发: speed=${playbackSpeed}x, isTunnelingSafe=$isTunnelingSafe, " +
+                "wantTunneling=$wantTunneling, speedPcmMode=$speedPcmMode, " +
+                "player.speed=${player.playbackParameters.speed}"
+        )
+
+        // 跨越 1.0 边界时切换音频管线：PCM 模式（屏蔽直通）↔ 原生模式（支持直通）
+        if (wantForcePcm != speedPcmMode) {
+            speedPcmMode = wantForcePcm
+            Log.i(SPEED_TUNNEL_TAG, "重建播放器: 屏蔽直通PCM模式=$wantForcePcm")
+            val oldPlayer = player
+            val resumePositionMs = oldPlayer.currentPosition
+            val currentMediaItem = oldPlayer.currentMediaItem
+            val trackParameters = oldPlayer.trackSelectionParameters
+            oldPlayer.stop()
+            val newPlayer = buildPlayer()
+            if (currentMediaItem != null) {
+                newPlayer.setMediaItem(currentMediaItem, resumePositionMs)
+            }
+            // 继承原轨道选择（保留用户手选的音轨/字幕），隧道状态按当前倍速修正
+            newPlayer.trackSelectionParameters =
+                if (trackParameters is DefaultTrackSelector.Parameters) {
+                    trackParameters.buildUpon().setTunnelingEnabled(wantTunneling).build()
+                } else {
+                    trackParameters
+                }
+            newPlayer.prepare()
+            newPlayer.playWhenReady = true
+            player = newPlayer // player 变化会重启本 effect，在新播放器上继续应用倍速
+            return@LaunchedEffect
+        }
+
+        // 无需重建时，确保隧道开关与倍速匹配
         val currentParams = player.trackSelectionParameters
-        var toggledTunneling = false
         if (currentParams is DefaultTrackSelector.Parameters &&
             currentParams.tunnelingEnabled != wantTunneling
         ) {
             player.trackSelectionParameters = currentParams.buildUpon()
                 .setTunnelingEnabled(wantTunneling)
                 .build()
-            toggledTunneling = true
             Log.i(
                 SPEED_TUNNEL_TAG,
-                "倍速=${playbackSpeed}x，切换隧道模式: ${currentParams.tunnelingEnabled} -> $wantTunneling"
+                "切换隧道模式: ${currentParams.tunnelingEnabled} -> $wantTunneling"
             )
         }
-        // 关闭/开启隧道会触发轨道重选与渲染器异步重建（电视上 DV 解码重建较慢），
-        // 期间 setPlaybackSpeed 可能被旧配置异步重置回 1.0，而 player.playbackParameters
-        // 的读回值又可能短暂显示"已生效"（重置尚未派发，假阳性），不能靠它判断成败。
-        // 因此在窗口期内无条件持续重发倍速，保证最后一次调用落在重建完成后的最终配置上。
-        if (toggledTunneling || playbackSpeed != 1.0f) {
-            repeat(40) {
+
+        if (playbackSpeed != 1.0f) {
+            repeat(40) { i ->
                 player.setPlaybackSpeed(playbackSpeed)
+                if (i % 4 == 0) {
+                    Log.i(SPEED_TUNNEL_TAG, "重发倍速 #$i: player.speed=${player.playbackParameters.speed}")
+                }
                 delay(250)
             }
         } else {
