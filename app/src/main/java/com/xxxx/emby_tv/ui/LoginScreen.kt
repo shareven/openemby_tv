@@ -1,6 +1,7 @@
 package com.xxxx.emby_tv.ui
 
 import android.annotation.SuppressLint
+import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -28,7 +29,10 @@ import com.xxxx.emby_tv.QrCodeUtils
 import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.util.DiscoveredServer
 import com.xxxx.emby_tv.util.EmbyServerDiscovery
+import com.xxxx.emby_tv.data.remote.EmbyApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.xxxx.emby_tv.ui.components.TvInputDialog
@@ -101,6 +105,8 @@ fun LoginScreen(
     // 局域网服务器自动发现
     var discoveredServers by remember { mutableStateOf<List<DiscoveredServer>>(emptyList()) }
     var showServerPicker by remember { mutableStateOf(false) }
+    // 服务器Id -> 唯一用户名（该服务器只有一个用户时预填）
+    var serverUserHints by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
 
     // 进入登录页时扫描局域网 Emby 服务器；
     // 首次登录（未保存过服务器地址）时弹窗让用户选择（即使只有 1 台），
@@ -111,6 +117,17 @@ fun LoginScreen(
         if (servers.isNotEmpty() && host.isEmpty()) {
             showServerPicker = true
         }
+        // 并发查询各服务器的公开用户：仅一个用户时记录用户名用于预填
+        servers.map { server ->
+            async(Dispatchers.IO) {
+                val name = fetchSingleUserName(context, server.address)
+                server.id to name
+            }
+        }.awaitAll().forEach { (id, name) ->
+            if (name != null) {
+                serverUserHints = serverUserHints + (id to name)
+            }
+        }
     }
 
     fun applyDiscoveredServer(server: DiscoveredServer) {
@@ -118,6 +135,10 @@ fun LoginScreen(
         protocol = p
         host = h
         port = pt
+        // 服务器只有一个用户时自动填入用户名（不覆盖已输入的内容）
+        serverUserHints[server.id]?.let { name ->
+            if (username.isEmpty()) username = name
+        }
         showServerPicker = false
         // 地址已填好，聚焦到登录按钮方便直接登录
         loginButtonFocusRequester.requestFocus()
@@ -167,7 +188,8 @@ fun LoginScreen(
             val server = LocalServer.startServer(
                 themeColor.primaryDark,
                 themeColor.secondaryLight,
-                serversProvider = { discoveredServers }
+                serversProvider = { discoveredServers },
+                serverUserHintsProvider = { serverUserHints }
             ) { p, h, pt, user, pass ->
                 protocol = p
                 host = h
@@ -730,5 +752,20 @@ private fun ServerPickerDialog(
             firstFocusRequester.requestFocus()
         } catch (_: Exception) {
         }
+    }
+}
+
+/**
+ * 查询目标服务器的公开用户（GET /Users/Public，无需认证），
+ * 仅当服务器只有一个用户时返回该用户名，否则返回 null
+ */
+private suspend fun fetchSingleUserName(context: Context, serverAddress: String): String? {
+    return try {
+        val deviceId = com.xxxx.emby_tv.data.repository.EmbyRepository.getInstance(context).deviceId
+        val users = EmbyApi.getPublicUsers(context, serverAddress, deviceId)
+        val names = users.mapNotNull { it.name?.trim()?.takeIf(String::isNotEmpty) }
+        names.singleOrNull()
+    } catch (_: Exception) {
+        null
     }
 }

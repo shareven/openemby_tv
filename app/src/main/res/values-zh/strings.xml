@@ -184,6 +184,7 @@
     <!-- LAN Server Discovery -->
     <string name="discovered_servers_title">发现的服务器</string>
     <string name="discovered_servers_hint">检测到局域网内的 Emby 服务器，点击选择并自动填入</string>
+    <string name="selected">已选中</string>
 
     <!-- Search -->
     <string name="search">搜索</string>

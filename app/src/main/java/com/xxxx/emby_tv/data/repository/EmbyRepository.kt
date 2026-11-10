@@ -189,7 +189,8 @@ class EmbyRepository private constructor(private val context: Context) {
     // === 标记片头（服务端媒体库设置） ===
 
     /**
-     * 获取虚拟媒体库列表（需管理员权限）
+     * 获取媒体库列表（VirtualFolders 是 Emby 对媒体库的 API 叫法，即真实库），
+     * 需管理员权限
      */
     suspend fun getVirtualFolders(): List<VirtualFolderInfoDto> {
         requireLoggedIn()
@@ -205,7 +206,11 @@ class EmbyRepository private constructor(private val context: Context) {
      * 更新媒体库的标记片头设置（需管理员权限）
      * 失败时抛出异常（HTTP Error: 4xx 表示权限不足或未开通 Premiere）
      */
-    suspend fun updateLibraryMarkerDetection(itemId: String, libraryOptions: JsonObject) {
+    suspend fun updateLibraryMarkerDetection(
+        itemId: String,
+        libraryOptions: JsonObject,
+        wrapInArray: Boolean
+    ) {
         requireLoggedIn()
         EmbyApi.updateLibraryMarkerDetection(
             context,
@@ -213,7 +218,23 @@ class EmbyRepository private constructor(private val context: Context) {
             session.apiKey!!,
             session.deviceId,
             itemId,
-            libraryOptions
+            libraryOptions,
+            wrapInArray
+        )
+    }
+
+    /**
+     * 获取媒体项的祖先（含所属媒体库文件夹），普通用户权限即可
+     */
+    suspend fun getItemAncestors(itemId: String): List<BaseItemDto> {
+        requireLoggedIn()
+        return EmbyApi.getItemAncestors(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            session.userId!!,
+            itemId
         )
     }
 

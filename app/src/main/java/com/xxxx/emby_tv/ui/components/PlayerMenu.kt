@@ -115,7 +115,7 @@ fun PlayerMenu(
         list.add("Audio") // 3 or 2
         list.add("Mode")
         list.add("Correction") // ...
-        list.add("IntroSkip") // Intro Skip settings
+        if (isSeries) list.add("IntroSkip") // 跳过片头仅对电视剧有意义，电影不显示
         list.add("Buffer") // Buffer settings
         list.add("External") // 外部播放器
         list
@@ -257,7 +257,9 @@ fun PlayerMenu(
                             )
                             "IntroSkip" -> IntroSkipTab(
                                 autoSkipIntro,
-                                onAutoSkipIntroChange
+                                onAutoSkipIntroChange,
+                                mediaInfo,
+                                repository
                             )
                             "Buffer" -> BufferSettingsTab(
                                 minBufferMs = minBufferMs,
@@ -988,50 +990,161 @@ fun PlayModeTab(current: Int, onChange: (Int) -> Unit, isSeries: Boolean = true)
 @Composable
 fun IntroSkipTab(
     autoSkipIntro: Boolean,
-    onAutoSkipIntroChange: (Boolean) -> Unit
+    onAutoSkipIntroChange: (Boolean) -> Unit,
+    mediaInfo: BaseItemDto,
+    repository: EmbyRepository
 ) {
+    val isSeries = mediaInfo.type == "Episode" || mediaInfo.seriesId != null
+
+    // 当前剧集所属媒体库的标记片头状态（服务端设置，需管理员）
+    var markerLibraries by remember { mutableStateOf<List<MarkerLibraryState>>(emptyList()) }
+    var markerStatus by remember { mutableStateOf<MarkerLoadStatus>(MarkerLoadStatus.Loading) }
+
+    LaunchedEffect(Unit) {
+        if (!isSeries) return@LaunchedEffect
+        try {
+            val libs = toMarkerLibraries(repository.getVirtualFolders())
+            if (libs.isEmpty()) {
+                markerStatus = MarkerLoadStatus.NoLibraries
+                return@LaunchedEffect
+            }
+            // 优先定位当前剧集所属的媒体库（通过祖先链匹配），失败则显示全部电视剧库
+            val libsToShow = try {
+                val ancestorIds = repository.getItemAncestors(mediaInfo.id ?: "")
+                    .mapNotNull { it.id }
+                libs.filter { ancestorIds.contains(it.itemId) }.ifEmpty { libs }
+            } catch (_: Exception) {
+                libs
+            }
+            markerLibraries = libsToShow
+            markerStatus = MarkerLoadStatus.Loaded
+        } catch (e: Exception) {
+            // 4xx：权限不足（需管理员）；其他：网络/服务异常。菜单里静默降级为提示文字
+            markerStatus = if (e.message?.contains("HTTP Error: 4") == true) {
+                MarkerLoadStatus.Denied
+            } else {
+                MarkerLoadStatus.Failed
+            }
+        }
+    }
+
     val options = listOf(
         false to stringResource(R.string.manual_skip_intro),
         true to stringResource(R.string.auto_skip_intro)
     )
+
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
         items(options) { (value, label) ->
-            val isSelected = autoSkipIntro == value
-            Surface(
-                onClick = { onAutoSkipIntroChange(value) },
-                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
-                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
-                    containerColor = if (isSelected) TvMaterialTheme.colorScheme.surfaceVariant.copy(
-                        alpha = 0.5f
-                    ) else Color.Transparent,
-                    contentColor = TvMaterialTheme.colorScheme.onSurface
-                ),
-                scale = ClickableSurfaceDefaults.scale(
-                    focusedScale = 1.03f,
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .padding(12.dp)
-                        .fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(label, style = TvMaterialTheme.typography.bodyLarge)
-                    if (isSelected) Icon(
-                        Icons.Default.Check,
-                        null,
-                        tint = LocalContentColor.current
+            MarkerOptionRow(
+                label = label,
+                isSelected = autoSkipIntro == value,
+                onClick = { onAutoSkipIntroChange(value) }
+            )
+        }
+
+        // ===== 标记片头（服务端，仅电视剧播放时显示） =====
+        if (isSeries) {
+            item {
+                Text(
+                    text = stringResource(R.string.intro_marker_section),
+                    style = TvMaterialTheme.typography.titleSmall,
+                    color = TvMaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 20.dp, bottom = 2.dp)
+                )
+            }
+            item {
+                Text(
+                    text = stringResource(R.string.intro_marker_desc),
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    lineHeight = 18.sp
+                )
+            }
+            when (markerStatus) {
+                MarkerLoadStatus.Loading -> item {
+                    MarkerStatusText(stringResource(R.string.intro_marker_loading))
+                }
+                MarkerLoadStatus.Denied -> item {
+                    MarkerStatusText(stringResource(R.string.intro_marker_need_admin))
+                }
+                MarkerLoadStatus.Failed -> item {
+                    MarkerStatusText(stringResource(R.string.intro_marker_load_failed))
+                }
+                MarkerLoadStatus.NoLibraries -> item {
+                    MarkerStatusText(stringResource(R.string.intro_marker_no_libraries))
+                }
+                MarkerLoadStatus.Loaded -> item {
+                    IntroMarkerSection(
+                        libraries = markerLibraries,
+                        onUpdateLibrary = { itemId, update ->
+                            markerLibraries = markerLibraries.map {
+                                if (it.itemId == itemId) update(it) else it
+                            }
+                        },
+                        showDescription = false,
+                        libraryNameLeading = TvMaterialTheme.colorScheme.secondary,
+                        optionRow = { label, selected, onClick ->
+                            MarkerOptionRow(label = label, isSelected = selected, onClick = onClick)
+                        }
                     )
                 }
             }
         }
     }
+}
+
+/** IntroSkip 页的选项行（手动/自动跳过与标记片头三档共用样式） */
+@Composable
+private fun MarkerOptionRow(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+            containerColor = if (isSelected) TvMaterialTheme.colorScheme.surfaceVariant.copy(
+                alpha = 0.5f
+            ) else Color.Transparent,
+            contentColor = TvMaterialTheme.colorScheme.onSurface
+        ),
+        scale = ClickableSurfaceDefaults.scale(
+            focusedScale = 1.03f,
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, style = TvMaterialTheme.typography.bodyLarge)
+            if (isSelected) Icon(
+                Icons.Default.Check,
+                stringResource(R.string.selected),
+                tint = LocalContentColor.current
+            )
+        }
+    }
+}
+
+/** 标记片头区块的状态提示文字 */
+@Composable
+private fun MarkerStatusText(text: String) {
+    Text(
+        text = text,
+        style = TvMaterialTheme.typography.bodySmall,
+        color = Color.White.copy(alpha = 0.6f),
+        modifier = Modifier.padding(vertical = 8.dp)
+    )
 }
 
 /**

@@ -18,6 +18,7 @@ import com.xxxx.emby_tv.data.model.AuthenticationResultDto
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.EmbyResponseDto
 import com.xxxx.emby_tv.data.model.MediaDto
+import com.xxxx.emby_tv.data.model.PublicUserDto
 import com.xxxx.emby_tv.data.model.SessionDto
 import com.xxxx.emby_tv.data.model.VirtualFolderInfoDto
 import com.xxxx.emby_tv.util.ErrorHandler
@@ -107,8 +108,11 @@ object EmbyApi {
     // ==================== 标记片头（服务端媒体库设置） ====================
 
     /**
-     * 获取虚拟媒体库列表（含 LibraryOptions，用于读取/回写标记片头设置）
-     * 需管理员权限
+     * 获取媒体库列表（含 LibraryOptions，用于读取/回写标记片头设置）。
+     * VirtualFolders 是 Emby API 对"媒体库"的官方叫法，返回的就是
+     * 网页后台「控制台 → 媒体库」里的那些真实库。需管理员权限。
+     * 兼容两种响应：/Query 返回 QueryResult{Items:[...]} 包装对象，
+     * 经典端点 /Library/VirtualFolders 返回裸数组
      */
     suspend fun getVirtualFolders(
         context: Context,
@@ -116,18 +120,28 @@ object EmbyApi {
         apiKey: String,
         deviceId: String
     ): List<VirtualFolderInfoDto> = withContext(Dispatchers.IO) {
-        suspend fun fetch(path: String): List<VirtualFolderInfoDto> {
+        suspend fun fetchList(path: String): List<VirtualFolderInfoDto> {
             return httpStream(context, serverUrl, apiKey, deviceId, path) { reader ->
-                val type = object : TypeToken<List<VirtualFolderInfoDto>>() {}.type
-                gson.fromJson<List<VirtualFolderInfoDto>>(reader, type) ?: emptyList()
+                val element = com.google.gson.JsonParser.parseReader(reader)
+                val array = when {
+                    element.isJsonArray -> element.asJsonArray
+                    element.isJsonObject -> element.asJsonObject.getAsJsonArray("Items")
+                        ?: com.google.gson.JsonArray()
+                    else -> com.google.gson.JsonArray()
+                }
+                array.mapNotNull { item ->
+                    if (item.isJsonObject) {
+                        gson.fromJson(item, VirtualFolderInfoDto::class.java)
+                    } else null
+                }
             }
         }
         try {
-            fetch("/Library/VirtualFolders/Query?X-Emby-Token=$apiKey")
+            fetchList("/Library/VirtualFolders/Query?X-Emby-Token=$apiKey")
         } catch (e: Exception) {
-            // 旧版本服务端无 Query 端点，回退到经典端点
+            // 端点不可用（404/405 等）时回退经典端点；认证类错误回退后同样会失败，不影响判断
             if (e.message?.contains("HTTP Error") == true) {
-                fetch("/Library/VirtualFolders?X-Emby-Token=$apiKey")
+                fetchList("/Library/VirtualFolders?X-Emby-Token=$apiKey")
             } else {
                 throw e
             }
@@ -136,8 +150,10 @@ object EmbyApi {
 
     /**
      * 更新媒体库的标记片头设置（POST /Library/VirtualFolders/LibraryOptions）
-     * libraryOptions 必须是先前查询到的完整对象，仅修改标记片头相关字段后整体回传，
-     * 否则会清掉媒体库的其他配置。需管理员权限
+     * libraryOptions 必须是先前查询到的完整对象，仅修改标记片头相关字段后回传，
+     * 否则会清掉媒体库的其他配置。
+     * [wrapInArray]：服务端 GET 返回的 LibraryOptions 是数组结构时需按数组回传
+     * （实测 4.10 稳定版返回单对象，beta 文档标注为数组，两者都兼容）。需管理员权限
      */
     suspend fun updateLibraryMarkerDetection(
         context: Context,
@@ -145,16 +161,62 @@ object EmbyApi {
         apiKey: String,
         deviceId: String,
         itemId: String,
-        libraryOptions: com.google.gson.JsonObject
+        libraryOptions: com.google.gson.JsonObject,
+        wrapInArray: Boolean
     ) = withContext(Dispatchers.IO) {
+        val optionsElement: com.google.gson.JsonElement = if (wrapInArray) {
+            com.google.gson.JsonArray().apply { add(libraryOptions) }
+        } else {
+            libraryOptions
+        }
         val body = com.google.gson.JsonObject().apply {
             addProperty("Id", itemId)
-            add("LibraryOptions", libraryOptions)
+            add("LibraryOptions", optionsElement)
         }
         httpStream(
             context, serverUrl, apiKey, deviceId,
             "/Library/VirtualFolders/LibraryOptions?X-Emby-Token=$apiKey", "POST", body
         ) { reader -> reader }
+    }
+
+    /**
+     * 获取媒体项的祖先列表（含所属媒体库文件夹），普通用户权限即可
+     */
+    suspend fun getItemAncestors(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String,
+        userId: String,
+        itemId: String
+    ): List<BaseItemDto> {
+        return httpAsBaseItemDtoListDirect(
+            context, serverUrl, apiKey, deviceId,
+            "/Items/$itemId/Ancestors?UserId=$userId&X-Emby-Token=$apiKey"
+        )
+    }
+
+    /**
+     * 获取目标服务器的公开用户列表（GET /Users/Public，无需认证）。
+     * 用于发现服务器后：仅有一个用户时预填用户名
+     */
+    suspend fun getPublicUsers(
+        context: Context,
+        serverUrl: String,
+        deviceId: String
+    ): List<PublicUserDto> = withContext(Dispatchers.IO) {
+        httpStream(context, serverUrl, "", deviceId, "/Users/Public") { reader ->
+            val element = com.google.gson.JsonParser.parseReader(reader)
+            val array = when {
+                element.isJsonArray -> element.asJsonArray
+                element.isJsonObject -> element.asJsonObject.getAsJsonArray("Items")
+                    ?: com.google.gson.JsonArray()
+                else -> com.google.gson.JsonArray()
+            }
+            array.mapNotNull { item ->
+                if (item.isJsonObject) gson.fromJson(item, PublicUserDto::class.java) else null
+            }
+        }
     }
 
     /**

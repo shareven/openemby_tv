@@ -14,7 +14,9 @@ class LocalServer private constructor(
     private val onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
     private val onSearchReceived: ((String) -> Unit)? = null,
     private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
-    private val serversProvider: (() -> List<DiscoveredServer>)? = null
+    private val serversProvider: (() -> List<DiscoveredServer>)? = null,
+    // 服务器Id -> 唯一用户名（发现的服务器只有一个用户时提供，用于网页自动填入）
+    private val serverUserHintsProvider: (() -> Map<String, String>)? = null
 ) : NanoHTTPD(port) {
 
     enum class Mode {
@@ -29,12 +31,14 @@ class LocalServer private constructor(
             themePrimaryDark: Color,
             themeSecondaryLight: Color,
             serversProvider: (() -> List<DiscoveredServer>)? = null,
+            serverUserHintsProvider: (() -> Map<String, String>)? = null,
             onConfigReceived: (String, String, String, String, String) -> Unit
         ): LocalServer? {
             updateThemeColors(themePrimaryDark, themeSecondaryLight)
             return startInternal(
                 Mode.LOGIN,
                 serversProvider = serversProvider,
+                serverUserHintsProvider = serverUserHintsProvider,
                 onLoginConfigReceived = onConfigReceived
             )
         }
@@ -79,7 +83,8 @@ class LocalServer private constructor(
             onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
             onSearchReceived: ((String) -> Unit)? = null,
             onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
-            serversProvider: (() -> List<DiscoveredServer>)? = null
+            serversProvider: (() -> List<DiscoveredServer>)? = null,
+            serverUserHintsProvider: (() -> Map<String, String>)? = null
         ): LocalServer? {
             var port = 4000
             while (port < 4010) {
@@ -87,7 +92,7 @@ class LocalServer private constructor(
                     val server = LocalServer(
                         port, mode,
                         onLoginConfigReceived, onSearchReceived, onProxyConfigReceived,
-                        serversProvider
+                        serversProvider, serverUserHintsProvider
                     )
                     server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return server
@@ -218,7 +223,9 @@ class LocalServer private constructor(
             }
         }
         
-        // 局域网发现的服务器列表（由 TV 端扫描提供），点击自动填入表单
+        // 局域网发现的服务器列表（由 TV 端扫描提供），点击自动填入表单；
+        // 若该服务器只有一个用户，同时自动填入用户名
+        val userHints = serverUserHintsProvider?.invoke().orEmpty()
         val serversBlock = buildString {
             val servers = serversProvider?.invoke().orEmpty()
             if (servers.isNotEmpty()) {
@@ -226,10 +233,12 @@ class LocalServer private constructor(
                 append("""<div class="server-list">""")
                 servers.forEach { server ->
                     val safeAddress = server.address.replace("'", "")
+                    val username = userHints[server.id]?.let { escapeHtml(it) } ?: ""
                     append(
-                        """<div class="server-item" onclick="parseAndFillUrl('$safeAddress')">""" +
+                        """<div class="server-item" data-username="$username" """ +
+                            """onclick="selectServer(this, '$safeAddress')">""" +
                             """<span class="server-name">${escapeHtml(server.name)}</span>""" +
-                            """<span class="server-addr">$safeAddress</span></div>"""
+                            """<span class="server-addr">$safeAddress →</span></div>"""
                     )
                 }
                 append("</div>")
@@ -361,21 +370,27 @@ class LocalServer private constructor(
                     }
                     .server-list { margin-bottom: 20px; }
                     .server-item {
-                        padding: 10px 12px; margin-bottom: 8px;
-                        background: rgba(0, 0, 0, 0.3);
-                        border: 1px solid rgba(255, 255, 255, 0.2);
-                        border-radius: 8px; color: white;
-                        cursor: pointer; transition: transform 0.2s, opacity 0.2s;
+                        display: flex; align-items: center; justify-content: space-between;
+                        gap: 8px;
+                        box-sizing: border-box;
+                        width: 100%; padding: 12px 16px; margin-bottom: 8px;
+                        background: white; color: black;
+                        border: none; border-radius: 8px;
+                        cursor: pointer;
+                        transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+                        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
                     }
+                    .server-item:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
                     .server-item:active { transform: scale(0.98); opacity: 0.9; }
-                    .server-name { display: block; font-size: 15px; font-weight: bold; }
-                    .server-addr { display: block; font-size: 12px; color: #bbb; margin-top: 2px; }
+                    .server-name { flex: 0 1 auto; font-size: 15px; font-weight: bold; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .server-addr { flex: 0 1 auto; font-size: 12px; color: #555; font-weight: normal; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <h2 id="form-title">Emby TV Login</h2>
                     <form method="POST" id="login-form">
+                        $serversBlock
                         <label id="label-url">Server URL</label>
                         <div class="input-row">
                             <input type="hidden" name="protocol" id="protocol-input" value="http">
@@ -383,7 +398,6 @@ class LocalServer private constructor(
                             <input type="text" name="host" class="host" placeholder="192.168.1.x" required>
                             <input type="text" name="port" class="port" placeholder="Port" value="8096">
                         </div>
-                        $serversBlock
                         <label id="label-user">Username</label>
                         <input type="text" name="username" id="input-username" placeholder="Username" required>
                         <label id="label-pass">Password</label>
@@ -413,6 +427,12 @@ class LocalServer private constructor(
                         document.querySelector('input[name=host]').value = host;
                         document.querySelector('input[name=port]').value = port;
                         return true;
+                    }
+                    // 点击发现的服务器：填地址端口；若该服务器只有一个用户则同时填用户名
+                    function selectServer(el, address) {
+                        if (!parseAndFillUrl(address)) return;
+                        var u = el.getAttribute('data-username');
+                        if (u) document.getElementById('input-username').value = u;
                     }
                     // 页面打开时尝试自动读取剪贴板（需浏览器支持且在安全上下文）
                     if (navigator.clipboard && navigator.clipboard.readText) {

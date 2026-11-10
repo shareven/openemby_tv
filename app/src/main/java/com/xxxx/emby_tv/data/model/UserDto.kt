@@ -27,3 +27,13 @@ data class UserDto(
     @SerializedName("PasswordResetProviderId") val passwordResetProviderId: String? = null,
     @SerializedName("ExcludedSubFolders") val excludedSubFolders: List<String>? = null
 )
+
+/**
+ * 公开用户信息（GET /Users/Public，无需认证）
+ * Emby 官方登录页用它显示可选用户，用于发现服务器后预填用户名
+ */
+data class PublicUserDto(
+    @SerializedName("Name") val name: String? = null,
+    @SerializedName("Id") val id: String? = null,
+    @SerializedName("HasPassword") val hasPassword: Boolean = false
+)

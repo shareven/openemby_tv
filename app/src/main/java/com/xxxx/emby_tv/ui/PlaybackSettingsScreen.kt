@@ -1,6 +1,5 @@
 package com.xxxx.emby_tv.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,14 +48,16 @@ import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
-import com.google.gson.JsonObject
 import com.xxxx.emby_tv.R
 import com.xxxx.emby_tv.data.local.PreferencesManager
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.ui.components.BufferSettingRow
+import com.xxxx.emby_tv.ui.components.IntroMarkerSection
+import com.xxxx.emby_tv.ui.components.MarkerLibraryState
+import com.xxxx.emby_tv.ui.components.MarkerLoadStatus
+import com.xxxx.emby_tv.ui.components.toMarkerLibraries
 import com.xxxx.emby_tv.util.ExternalPlayerHelper
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -83,67 +83,24 @@ fun PlaybackSettingsScreen(
     var autoSkipIntro by remember { mutableStateOf(prefs.autoSkipIntro) }
 
     // 标记片头（服务端媒体库设置）
-    val scope = rememberCoroutineScope()
     var markerLibraries by remember { mutableStateOf<List<MarkerLibraryState>>(emptyList()) }
-    var markerStatus by remember { mutableStateOf<MarkerStatus>(MarkerStatus.Loading) }
+    var markerStatus by remember { mutableStateOf<MarkerLoadStatus>(MarkerLoadStatus.Loading) }
 
     LaunchedEffect(Unit) {
         try {
-            val libs = EmbyRepository.getInstance(context).getVirtualFolders()
-                .filter { it.collectionType.equals("tvshows", ignoreCase = true) && it.libraryOptions != null }
+            val libs = toMarkerLibraries(EmbyRepository.getInstance(context).getVirtualFolders())
             if (libs.isEmpty()) {
-                markerStatus = MarkerStatus.NoLibraries
+                markerStatus = MarkerLoadStatus.NoLibraries
             } else {
-                markerLibraries = libs.map {
-                    MarkerLibraryState(
-                        itemId = it.itemId,
-                        name = it.name,
-                        savedMode = markerModeOf(it.libraryOptions),
-                        libraryOptions = it.libraryOptions!!
-                    )
-                }
-                markerStatus = MarkerStatus.Loaded
+                markerLibraries = libs
+                markerStatus = MarkerLoadStatus.Loaded
             }
         } catch (e: Exception) {
             // 4xx：权限不足（需管理员）；其他：网络/服务异常
             markerStatus = if (e.message?.contains("HTTP Error: 4") == true) {
-                MarkerStatus.Denied
+                MarkerLoadStatus.Denied
             } else {
-                MarkerStatus.Failed
-            }
-        }
-    }
-
-    /**
-     * 切换某媒体库的标记片头模式：
-     * 先乐观更新界面，写入服务端成功后确认；失败（如未开通 Premiere / 权限不足）
-     * 时提示错误并回滚到服务端已保存的模式
-     */
-    fun changeMarkerMode(lib: MarkerLibraryState, newMode: Int) {
-        if (lib.selectedMode == newMode) return
-        markerLibraries = markerLibraries.map {
-            if (it.itemId == lib.itemId) it.copy(selectedMode = newMode) else it
-        }
-        scope.launch {
-            try {
-                applyMarkerMode(lib.libraryOptions, newMode)
-                EmbyRepository.getInstance(context)
-                    .updateLibraryMarkerDetection(lib.itemId, lib.libraryOptions)
-                markerLibraries = markerLibraries.map {
-                    if (it.itemId == lib.itemId) it.copy(savedMode = newMode) else it
-                }
-            } catch (e: Exception) {
-                // 失败：回滚界面选择，并还原回传对象避免残留脏数据
-                applyMarkerMode(lib.libraryOptions, lib.savedMode)
-                markerLibraries = markerLibraries.map {
-                    if (it.itemId == lib.itemId) it.copy(selectedMode = lib.savedMode) else it
-                }
-                val msg = if (e.message?.contains("HTTP Error") == true) {
-                    context.getString(R.string.intro_marker_update_denied)
-                } else {
-                    context.getString(R.string.intro_marker_update_failed)
-                }
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                MarkerLoadStatus.Failed
             }
         }
     }
@@ -324,42 +281,38 @@ fun PlaybackSettingsScreen(
 
                     // ===== 标记片头（服务端） =====
                     item { SectionTitle(stringResource(R.string.intro_marker_section)) }
-                    item { MarkerDescText(stringResource(R.string.intro_marker_desc)) }
                     when (markerStatus) {
-                        MarkerStatus.Loading -> {
+                        MarkerLoadStatus.Loading -> {
                             item { MarkerDescText(stringResource(R.string.intro_marker_loading)) }
                         }
-                        MarkerStatus.Denied -> {
+                        MarkerLoadStatus.Denied -> {
                             item { MarkerDescText(stringResource(R.string.intro_marker_need_admin)) }
                         }
-                        MarkerStatus.Failed -> {
+                        MarkerLoadStatus.Failed -> {
                             item { MarkerDescText(stringResource(R.string.intro_marker_load_failed)) }
                         }
-                        MarkerStatus.NoLibraries -> {
+                        MarkerLoadStatus.NoLibraries -> {
                             item { MarkerDescText(stringResource(R.string.intro_marker_no_libraries)) }
                         }
-                        MarkerStatus.Loaded -> {
-                            items(markerLibraries, key = { it.itemId }) { lib ->
-                                Column {
-                                    Text(
-                                        text = stringResource(R.string.intro_marker_library_name, lib.name),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.secondary,
-                                        modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp)
-                                    )
-                                    SettingOptionRow(
-                                        title = stringResource(R.string.intro_marker_mode_never),
-                                        isSelected = lib.selectedMode == 0
-                                    ) { changeMarkerMode(lib, 0) }
-                                    SettingOptionRow(
-                                        title = stringResource(R.string.intro_marker_mode_scheduled),
-                                        isSelected = lib.selectedMode == 1
-                                    ) { changeMarkerMode(lib, 1) }
-                                    SettingOptionRow(
-                                        title = stringResource(R.string.intro_marker_mode_on_scan),
-                                        isSelected = lib.selectedMode == 2
-                                    ) { changeMarkerMode(lib, 2) }
-                                }
+                        MarkerLoadStatus.Loaded -> {
+                            item {
+                                IntroMarkerSection(
+                                    libraries = markerLibraries,
+                                    onUpdateLibrary = { itemId, update ->
+                                        markerLibraries = markerLibraries.map {
+                                            if (it.itemId == itemId) update(it) else it
+                                        }
+                                    },
+                                    showDescription = true,
+                                    rowSpacing = 8.dp,
+                                    optionRow = { label, selected, onClick ->
+                                        SettingOptionRow(
+                                            title = label,
+                                            isSelected = selected,
+                                            onClick = onClick
+                                        )
+                                    }
+                                )
                             }
                         }
                     }
@@ -562,49 +515,6 @@ private fun SettingOptionRow(
             }
         }
     }
-}
-
-/** 标记片头区块的加载状态 */
-private sealed class MarkerStatus {
-    object Loading : MarkerStatus()
-    object Denied : MarkerStatus()
-    object Failed : MarkerStatus()
-    object NoLibraries : MarkerStatus()
-    object Loaded : MarkerStatus()
-}
-
-/** 单个电视剧媒体库的标记片头状态 */
-private data class MarkerLibraryState(
-    val itemId: String,
-    val name: String,
-    /** 服务端已保存的模式 */
-    val savedMode: Int,
-    /** 当前界面选中的模式 */
-    val selectedMode: Int = savedMode,
-    /** 服务端返回的完整 LibraryOptions，修改时仅改标记片头字段后整体回传 */
-    val libraryOptions: JsonObject
-)
-
-/**
- * 从 LibraryOptions 读取标记片头模式：
- * 0 从不 / 1 定时任务扫描 / 2 定时任务 + 添加新媒体时
- */
-private fun markerModeOf(options: JsonObject?): Int {
-    val enabled = options?.get("EnableMarkerDetection")
-        ?.takeIf { !it.isJsonNull }?.asBoolean ?: false
-    val duringScan = options?.get("EnableMarkerDetectionDuringLibraryScan")
-        ?.takeIf { !it.isJsonNull }?.asBoolean ?: false
-    return when {
-        !enabled -> 0
-        duringScan -> 2
-        else -> 1
-    }
-}
-
-/** 将标记片头模式写回 LibraryOptions（仅改动这两个字段） */
-private fun applyMarkerMode(options: JsonObject, mode: Int) {
-    options.addProperty("EnableMarkerDetection", mode != 0)
-    options.addProperty("EnableMarkerDetectionDuringLibraryScan", mode == 2)
 }
 
 /** 标记片头区块的说明/状态文字 */

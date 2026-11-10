@@ -184,6 +184,7 @@
     <!-- LAN Server Discovery -->
     <string name="discovered_servers_title">Discovered Servers</string>
     <string name="discovered_servers_hint">Emby servers found in your LAN. Click to select and auto-fill</string>
+    <string name="selected">Selected</string>
 
     <!-- Search -->
     <string name="search">Search</string>
