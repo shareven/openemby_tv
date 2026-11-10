@@ -3,6 +3,7 @@ package com.xxxx.emby_tv
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import android.graphics.Color as AndroidColor
+import com.xxxx.emby_tv.util.DiscoveredServer
 import com.xxxx.emby_tv.util.ErrorHandler
 import fi.iki.elonen.NanoHTTPD
 import java.io.IOException
@@ -12,7 +13,8 @@ class LocalServer private constructor(
     private val mode: Mode,
     private val onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
     private val onSearchReceived: ((String) -> Unit)? = null,
-    private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null
+    private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
+    private val serversProvider: (() -> List<DiscoveredServer>)? = null
 ) : NanoHTTPD(port) {
 
     enum class Mode {
@@ -26,10 +28,15 @@ class LocalServer private constructor(
         fun startServer(
             themePrimaryDark: Color,
             themeSecondaryLight: Color,
+            serversProvider: (() -> List<DiscoveredServer>)? = null,
             onConfigReceived: (String, String, String, String, String) -> Unit
         ): LocalServer? {
             updateThemeColors(themePrimaryDark, themeSecondaryLight)
-            return startInternal(Mode.LOGIN, onLoginConfigReceived = onConfigReceived)
+            return startInternal(
+                Mode.LOGIN,
+                serversProvider = serversProvider,
+                onLoginConfigReceived = onConfigReceived
+            )
         }
 
         fun startSearchServer(
@@ -71,12 +78,17 @@ class LocalServer private constructor(
             mode: Mode,
             onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
             onSearchReceived: ((String) -> Unit)? = null,
-            onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null
+            onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
+            serversProvider: (() -> List<DiscoveredServer>)? = null
         ): LocalServer? {
             var port = 4000
             while (port < 4010) {
                 try {
-                    val server = LocalServer(port, mode, onLoginConfigReceived, onSearchReceived, onProxyConfigReceived)
+                    val server = LocalServer(
+                        port, mode,
+                        onLoginConfigReceived, onSearchReceived, onProxyConfigReceived,
+                        serversProvider
+                    )
                     server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return server
                 } catch (e: IOException) {
@@ -206,6 +218,24 @@ class LocalServer private constructor(
             }
         }
         
+        // 局域网发现的服务器列表（由 TV 端扫描提供），点击自动填入表单
+        val serversBlock = buildString {
+            val servers = serversProvider?.invoke().orEmpty()
+            if (servers.isNotEmpty()) {
+                append("""<label id="label-servers">Servers found in LAN</label>""")
+                append("""<div class="server-list">""")
+                servers.forEach { server ->
+                    val safeAddress = server.address.replace("'", "")
+                    append(
+                        """<div class="server-item" onclick="parseAndFillUrl('$safeAddress')">""" +
+                            """<span class="server-name">${escapeHtml(server.name)}</span>""" +
+                            """<span class="server-addr">$safeAddress</span></div>"""
+                    )
+                }
+                append("</div>")
+            }
+        }
+
         // Serve the form
         val html = """
             <!DOCTYPE html>
@@ -329,6 +359,17 @@ class LocalServer private constructor(
                         text-align: center;
                         color: #4CAF50;
                     }
+                    .server-list { margin-bottom: 20px; }
+                    .server-item {
+                        padding: 10px 12px; margin-bottom: 8px;
+                        background: rgba(0, 0, 0, 0.3);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                        border-radius: 8px; color: white;
+                        cursor: pointer; transition: transform 0.2s, opacity 0.2s;
+                    }
+                    .server-item:active { transform: scale(0.98); opacity: 0.9; }
+                    .server-name { display: block; font-size: 15px; font-weight: bold; }
+                    .server-addr { display: block; font-size: 12px; color: #bbb; margin-top: 2px; }
                 </style>
             </head>
             <body>
@@ -342,6 +383,7 @@ class LocalServer private constructor(
                             <input type="text" name="host" class="host" placeholder="192.168.1.x" required>
                             <input type="text" name="port" class="port" placeholder="Port" value="8096">
                         </div>
+                        $serversBlock
                         <label id="label-user">Username</label>
                         <input type="text" name="username" id="input-username" placeholder="Username" required>
                         <label id="label-pass">Password</label>
@@ -399,6 +441,8 @@ class LocalServer private constructor(
                     if (navigator.language.startsWith('zh')) {
                         document.getElementById('form-title').innerText = 'Emby TV 登录';
                         document.getElementById('label-url').innerText = '服务器地址';
+                        var labelServers = document.getElementById('label-servers');
+                        if (labelServers) labelServers.innerText = '局域网内的服务器';
                         document.getElementById('label-user').innerText = '用户名';
                         document.getElementById('input-username').placeholder = '用户名';
                         document.getElementById('label-pass').innerText = '密码';
@@ -602,6 +646,11 @@ class LocalServer private constructor(
             </html>
         """.trimIndent()
         return newFixedLengthResponse(html)
+    }
+
+    private fun escapeHtml(text: String): String {
+        return text.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace("\"", "&quot;")
     }
 
     private fun serveSuccessPage(enTitle: String, enDesc: String, zhTitle: String, zhDesc: String): Response {

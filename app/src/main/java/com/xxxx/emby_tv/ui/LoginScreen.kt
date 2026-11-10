@@ -18,11 +18,16 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.tv.material3.*
 import com.xxxx.emby_tv.LocalServer
 import com.xxxx.emby_tv.QrCodeUtils
 import com.xxxx.emby_tv.R
+import com.xxxx.emby_tv.util.DiscoveredServer
+import com.xxxx.emby_tv.util.EmbyServerDiscovery
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -93,6 +98,31 @@ fun LoginScreen(
     val hostFocusRequester = remember { FocusRequester() }
     val loginButtonFocusRequester = remember { FocusRequester() }
 
+    // 局域网服务器自动发现
+    var discoveredServers by remember { mutableStateOf<List<DiscoveredServer>>(emptyList()) }
+    var showServerPicker by remember { mutableStateOf(false) }
+
+    // 进入登录页时扫描局域网 Emby 服务器；
+    // 首次登录（未保存过服务器地址）时弹窗让用户选择（即使只有 1 台），
+    // 已有保存地址时不弹窗打扰，但结果仍会提供给扫码网页显示
+    LaunchedEffect(Unit) {
+        val servers = EmbyServerDiscovery.discover(context)
+        discoveredServers = servers
+        if (servers.isNotEmpty() && host.isEmpty()) {
+            showServerPicker = true
+        }
+    }
+
+    fun applyDiscoveredServer(server: DiscoveredServer) {
+        val (p, h, pt) = parseServerUrl(server.address)
+        protocol = p
+        host = h
+        port = pt
+        showServerPicker = false
+        // 地址已填好，聚焦到登录按钮方便直接登录
+        loginButtonFocusRequester.requestFocus()
+    }
+
     // Initial Focus Logic - 在 host 已经被正确初始化后执行
     LaunchedEffect(Unit) {
         // 给 UI 一点时间完成组合
@@ -136,7 +166,8 @@ fun LoginScreen(
         withContext(Dispatchers.IO) {
             val server = LocalServer.startServer(
                 themeColor.primaryDark,
-                themeColor.secondaryLight
+                themeColor.secondaryLight,
+                serversProvider = { discoveredServers }
             ) { p, h, pt, user, pass ->
                 protocol = p
                 host = h
@@ -434,6 +465,14 @@ fun LoginScreen(
         )
     }
 
+    if (showServerPicker) {
+        ServerPickerDialog(
+            servers = discoveredServers,
+            onDismiss = { showServerPicker = false },
+            onSelect = { applyDiscoveredServer(it) }
+        )
+    }
+
     // Dialogs
     if (showHostDialog) {
         TvInputDialog(
@@ -586,6 +625,110 @@ fun ProtocolButton(
                 text = protocol.uppercase(),
                 style = MaterialTheme.typography.bodyLarge
             )
+        }
+    }
+}
+/**
+ * 局域网发现的服务器选择弹窗：
+ * 显示扫描到的 Emby 服务器（名称 + 地址），用户点击后自动填入登录表单。
+ * 扫到 1 台也弹窗，由用户决定是否使用
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ServerPickerDialog(
+    servers: List<DiscoveredServer>,
+    onDismiss: () -> Unit,
+    onSelect: (DiscoveredServer) -> Unit
+) {
+    val firstFocusRequester = remember { FocusRequester() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            modifier = Modifier
+                .width(500.dp)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(24.dp),
+            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))),
+            colors = SurfaceDefaults.colors(
+                containerColor = Color(0xFF161616).copy(alpha = 0.95f),
+                contentColor = Color.White
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.discovered_servers_title),
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.discovered_servers_hint),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                servers.forEachIndexed { index, server ->
+                    Surface(
+                        onClick = { onSelect(server) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp)
+                            .then(
+                                if (index == 0) Modifier.focusRequester(firstFocusRequester)
+                                else Modifier
+                            ),
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                        border = ClickableSurfaceDefaults.border(
+                            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))),
+                            focusedBorder = Border(BorderStroke(2.dp, Color.White))
+                        ),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Color.White.copy(alpha = 0.05f),
+                            focusedContainerColor = Color.White.copy(alpha = 0.95f),
+                            contentColor = Color.White,
+                            focusedContentColor = Color.Black
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 16.dp),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = server.name,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                maxLines = 1
+                            )
+                            Text(
+                                text = server.address,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = LocalContentColor.current.copy(alpha = 0.7f)
+                                ),
+                                maxLines = 1
+                            )
+                        }
+                    }
+                    if (index < servers.size - 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(150)
+        try {
+            firstFocusRequester.requestFocus()
+        } catch (_: Exception) {
         }
     }
 }

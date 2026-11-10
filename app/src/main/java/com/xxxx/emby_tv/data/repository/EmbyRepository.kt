@@ -3,9 +3,11 @@ package com.xxxx.emby_tv.data.repository
 import android.content.Context
 import com.xxxx.emby_tv.data.remote.EmbyApi
 import com.xxxx.emby_tv.data.session.SessionManager
+import com.google.gson.JsonObject
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
 import com.xxxx.emby_tv.data.model.SessionDto
+import com.xxxx.emby_tv.data.model.VirtualFolderInfoDto
 
 /**
  * 数据仓库 - ViewModel 唯一依赖的数据源
@@ -181,6 +183,37 @@ class EmbyRepository private constructor(private val context: Context) {
             session.apiKey!!,
             session.deviceId,
             session.userId!!
+        )
+    }
+
+    // === 标记片头（服务端媒体库设置） ===
+
+    /**
+     * 获取虚拟媒体库列表（需管理员权限）
+     */
+    suspend fun getVirtualFolders(): List<VirtualFolderInfoDto> {
+        requireLoggedIn()
+        return EmbyApi.getVirtualFolders(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId
+        )
+    }
+
+    /**
+     * 更新媒体库的标记片头设置（需管理员权限）
+     * 失败时抛出异常（HTTP Error: 4xx 表示权限不足或未开通 Premiere）
+     */
+    suspend fun updateLibraryMarkerDetection(itemId: String, libraryOptions: JsonObject) {
+        requireLoggedIn()
+        EmbyApi.updateLibraryMarkerDetection(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            itemId,
+            libraryOptions
         )
     }
 

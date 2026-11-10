@@ -167,6 +167,24 @@
     <string name="manual_skip_intro">Manual Skip Intro</string>
     <string name="intro_detected">Intro detected</string>
 
+    <!-- Intro Marker (server-side library setting) -->
+    <string name="intro_marker_section">Intro Marking (Server)</string>
+    <string name="intro_marker_desc">Skip Intro requires the server to mark intros first. After enabling it for a TV library below, the server scans in the background — it does not take effect immediately and may take a while. Requires Emby Premiere; only administrators can change it.</string>
+    <string name="intro_marker_library_name">Library: %1$s</string>
+    <string name="intro_marker_mode_never">Off (never mark intros)</string>
+    <string name="intro_marker_mode_scheduled">On: as a scheduled task</string>
+    <string name="intro_marker_mode_on_scan">On: scheduled task + when media is added</string>
+    <string name="intro_marker_loading">Loading library intro marking settings…</string>
+    <string name="intro_marker_need_admin">Failed to load. An administrator account is required to view and change this setting</string>
+    <string name="intro_marker_load_failed">Failed to load library intro marking settings, please try again later</string>
+    <string name="intro_marker_no_libraries">No TV show library found</string>
+    <string name="intro_marker_update_denied">Failed: Emby Premiere may be missing or permission denied. Restored to the server-saved setting</string>
+    <string name="intro_marker_update_failed">Network error, setting not saved. Restored to the server-saved setting</string>
+
+    <!-- LAN Server Discovery -->
+    <string name="discovered_servers_title">Discovered Servers</string>
+    <string name="discovered_servers_hint">Emby servers found in your LAN. Click to select and auto-fill</string>
+
     <!-- Search -->
     <string name="search">Search</string>
     <string name="menu">Menu</string>

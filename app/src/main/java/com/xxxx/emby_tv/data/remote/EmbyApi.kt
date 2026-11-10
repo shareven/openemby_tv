@@ -19,6 +19,7 @@ import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.EmbyResponseDto
 import com.xxxx.emby_tv.data.model.MediaDto
 import com.xxxx.emby_tv.data.model.SessionDto
+import com.xxxx.emby_tv.data.model.VirtualFolderInfoDto
 import com.xxxx.emby_tv.util.ErrorHandler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -103,9 +104,62 @@ object EmbyApi {
         )
     }
 
+    // ==================== 标记片头（服务端媒体库设置） ====================
+
+    /**
+     * 获取虚拟媒体库列表（含 LibraryOptions，用于读取/回写标记片头设置）
+     * 需管理员权限
+     */
+    suspend fun getVirtualFolders(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String
+    ): List<VirtualFolderInfoDto> = withContext(Dispatchers.IO) {
+        suspend fun fetch(path: String): List<VirtualFolderInfoDto> {
+            return httpStream(context, serverUrl, apiKey, deviceId, path) { reader ->
+                val type = object : TypeToken<List<VirtualFolderInfoDto>>() {}.type
+                gson.fromJson<List<VirtualFolderInfoDto>>(reader, type) ?: emptyList()
+            }
+        }
+        try {
+            fetch("/Library/VirtualFolders/Query?X-Emby-Token=$apiKey")
+        } catch (e: Exception) {
+            // 旧版本服务端无 Query 端点，回退到经典端点
+            if (e.message?.contains("HTTP Error") == true) {
+                fetch("/Library/VirtualFolders?X-Emby-Token=$apiKey")
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /**
+     * 更新媒体库的标记片头设置（POST /Library/VirtualFolders/LibraryOptions）
+     * libraryOptions 必须是先前查询到的完整对象，仅修改标记片头相关字段后整体回传，
+     * 否则会清掉媒体库的其他配置。需管理员权限
+     */
+    suspend fun updateLibraryMarkerDetection(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String,
+        itemId: String,
+        libraryOptions: com.google.gson.JsonObject
+    ) = withContext(Dispatchers.IO) {
+        val body = com.google.gson.JsonObject().apply {
+            addProperty("Id", itemId)
+            add("LibraryOptions", libraryOptions)
+        }
+        httpStream(
+            context, serverUrl, apiKey, deviceId,
+            "/Library/VirtualFolders/LibraryOptions?X-Emby-Token=$apiKey", "POST", body
+        ) { reader -> reader }
+    }
+
     /**
      * 获取媒体库列表（支持分页）
-     * 
+     *
      * @param startIndex 起始索引
      * @param limit 每页数量
      * @return Pair<List<BaseItemDto>, Int> 数据列表和总数
