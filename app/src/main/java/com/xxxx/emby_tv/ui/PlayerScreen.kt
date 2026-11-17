@@ -9,6 +9,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -81,6 +82,7 @@ import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
 import com.xxxx.emby_tv.data.model.MediaStreamDto
+import com.xxxx.emby_tv.data.model.RemoteSubtitleInfoDto
 import com.xxxx.emby_tv.data.model.SessionDto
 import com.xxxx.emby_tv.ui.components.PlayerMenu
 import com.xxxx.emby_tv.ui.components.PlayerOverlay
@@ -271,6 +273,11 @@ fun PlayerScreen(
 
     // 因 MKV zlib 压缩等原因改由 Emby 服务器提取外挂 SRT 的字幕索引集合
     var configRoutedSubtitleIndices by remember { mutableStateOf(setOf<Int>()) }
+
+    // 在线字幕下载后，需要重建 MediaItem 以加载新字幕
+    var subtitleConfigVersion by remember { mutableStateOf(0) }
+    // 重建 MediaItem 时用于恢复的播放位置（仅在线字幕应用时使用）
+    var pendingSubtitleApplyPosition by remember { mutableStateOf<Long?>(null) }
 
     // 多版本片源切换：null 表示使用服务器返回的默认源
     var selectedMediaSourceId by remember { mutableStateOf<String?>(null) }
@@ -1002,6 +1009,40 @@ fun PlayerScreen(
         ) playbackTrigger++ // 只有手动修改时，才递增触发器，重启协程
     }
 
+    /**
+     * 在线字幕下载成功后：构造合成字幕轨、选中并重建 MediaItem。
+     *
+     * 不重新请求 PlaybackInfo，避免服务器返回的轨道列表覆盖刚下载的字幕。
+     * 字幕文件由 SubtitleConfigBuilder 以 Stream.srt 外挂方式加载。
+     */
+    fun applyDownloadedSubtitle(index: Int, info: RemoteSubtitleInfoDto) {
+        val title = info.name?.takeIf { it.isNotBlank() }
+            ?: info.providerName?.takeIf { it.isNotBlank() }
+            ?: context.getString(R.string.search_online_subtitles)
+        val syntheticTrack = MediaStreamDto(
+            codec = info.format,
+            language = info.language ?: info.threeLetterISOLanguageName,
+            displayTitle = title,
+            type = "Subtitle",
+            index = index,
+            isExternal = true,
+            supportsExternalStream = true,
+            isTextSubtitleStream = true,
+            isForced = info.isForced
+        )
+        subtitleTracks = subtitleTracks.filterNot { it.index == index } + syntheticTrack
+        selectedSubtitleIndex = index
+        hasTriedTranscodeFallback = false
+        val resumePosition = player.currentPosition.coerceAtLeast(0L)
+        pendingSubtitleApplyPosition = resumePosition
+        subtitleConfigVersion++
+        Toast.makeText(
+            context,
+            context.getString(R.string.subtitle_download_applied),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
     // 数据加载逻辑
     LaunchedEffect(mediaId, playbackCorrection, playbackTrigger) {
         //  这里的逻辑只会运行一次（初始化时）或者在手动递增 trigger 时运行
@@ -1134,11 +1175,15 @@ fun PlayerScreen(
     }
 
     // 设置 MediaItem 和 字幕
-    LaunchedEffect(videoUrl) {
+    // subtitleConfigVersion 变化时重建 MediaItem，用于应用在线下载的字幕
+    LaunchedEffect(videoUrl, subtitleConfigVersion) {
         if (videoUrl != null) {
+            // 在线字幕应用触发的 MediaItem 重建：跳过外部播放器和压缩字幕检测等首次初始化逻辑
+            val isSubtitleRebuild = pendingSubtitleApplyPosition != null
+
             // 外部播放器偏好：1=总是 2=仅杜比视界，命中时不启动内置播放器，直接交给外部播放器
             val externalMode = preferencesManager.externalPlayerMode
-            if (externalMode == 1 || externalMode == 2) {
+            if (!isSubtitleRebuild && (externalMode == 1 || externalMode == 2)) {
                 val isDv = externalMode == 2 && ExternalPlayerHelper.isDolbyVision(
                     ExternalPlayerHelper.getVideoStream(media, currentMediaSourceId)
                 )
@@ -1162,7 +1207,7 @@ fun PlayerScreen(
             val playbackUrl: String = videoUrl ?: return@LaunchedEffect
             val isMkv = playbackUrl.contains(".mkv", ignoreCase = true)
             val hasEmbeddedTextSubs = subtitleTracks.any { it.isExternal != true }
-            if (isMkv && hasEmbeddedTextSubs) {
+            if (!isSubtitleRebuild && isMkv && hasEmbeddedTextSubs) {
                 val compressedOrdinals = MkvCompressedSubtitleDetector.detect(playbackUrl, okHttpClient)
                 if (compressedOrdinals.isNotEmpty()) {
                     val embeddedSubs = subtitleTracks.filter { it.isExternal != true }
@@ -1189,8 +1234,13 @@ fun PlayerScreen(
                 .setUri(videoUrl)
                 .setSubtitleConfigurations(subtitleConfigs)
 
-           // 计算起始位置：优先级为播放进度 > 参数传入位置 > 0
-            val startPositionMs = if (position > 0) {
+           // 计算起始位置：在线字幕重建时优先使用当前播放位置，
+           // 否则优先级为播放进度 > 参数传入位置 > 0
+            val pendingPosition = pendingSubtitleApplyPosition
+            pendingSubtitleApplyPosition = null
+            val startPositionMs = if (pendingPosition != null) {
+                pendingPosition
+            } else if (position > 0) {
                 position
             } else if (playbackPositionTicks > 0) {
                 playbackPositionTicks / 10000
@@ -1200,6 +1250,9 @@ fun PlayerScreen(
 
             val mediaItem = mediaItemBuilder.build()
 
+            // 在线字幕重建时保留原来的播放/暂停状态
+            val resumePlayWhenReady = player.playWhenReady
+
             // 直接在setMediaItem中设置跳转位置（Media3 API支持）
             player.setMediaItem(mediaItem, startPositionMs)
 
@@ -1208,7 +1261,7 @@ fun PlayerScreen(
             }
 
             player.prepare()
-            player.playWhenReady = true
+            player.playWhenReady = if (isSubtitleRebuild) resumePlayWhenReady else true
         }
     }
 
@@ -1953,6 +2006,7 @@ fun PlayerScreen(
                     audioTracks = audioTracks,
                     selectedAudioIndex = selectedAudioIndex,
                     onAudioSelect = { index -> changeTrack(index, selectedSubtitleIndex) },
+                    onSubtitleDownloaded = { index, info -> applyDownloadedSubtitle(index, info) },
                     playbackCorrection = playbackCorrection,
                     onPlaybackCorrectionChange = {
                         // 只对当前播放视频生效，不持久化保存

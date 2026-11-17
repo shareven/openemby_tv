@@ -6,6 +6,8 @@ import com.xxxx.emby_tv.data.session.SessionManager
 import com.google.gson.JsonObject
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
+import com.xxxx.emby_tv.data.model.MediaStreamDto
+import com.xxxx.emby_tv.data.model.RemoteSubtitleInfoDto
 import com.xxxx.emby_tv.data.model.SessionDto
 import com.xxxx.emby_tv.data.model.VirtualFolderInfoDto
 
@@ -327,6 +329,73 @@ class EmbyRepository private constructor(private val context: Context) {
             disableHevc,
             mediaSourceId
         )
+    }
+
+    // === 在线字幕 ===
+
+    /**
+     * 搜索在线字幕
+     */
+    suspend fun searchRemoteSubtitles(
+        itemId: String,
+        language: String,
+        mediaSourceId: String? = null
+    ): List<RemoteSubtitleInfoDto> {
+        requireLoggedIn()
+        return EmbyApi.searchRemoteSubtitles(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            itemId,
+            language,
+            mediaSourceId
+        )
+    }
+
+    /**
+     * 下载在线字幕，返回新增字幕的媒体流索引
+     */
+    suspend fun downloadRemoteSubtitle(
+        itemId: String,
+        subtitleId: String,
+        mediaSourceId: String? = null
+    ): Int? {
+        requireLoggedIn()
+        return EmbyApi.downloadRemoteSubtitle(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            itemId,
+            subtitleId,
+            mediaSourceId
+        )
+    }
+
+    /**
+     * 获取条目的字幕流列表（含新增的外挂字幕）。
+     *
+     * 在线字幕下载后，部分 Emby 版本不返回 NewIndex，
+     * 需要通过重新拉取媒体流来定位新增字幕。
+     */
+    suspend fun getItemSubtitleStreams(
+        itemId: String,
+        mediaSourceId: String? = null
+    ): List<MediaStreamDto> {
+        requireLoggedIn()
+        val item = EmbyApi.getItemWithMediaSources(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            session.userId!!,
+            itemId
+        )
+        val source = item.mediaSources
+            ?.firstOrNull { mediaSourceId.isNullOrBlank() || it.id == mediaSourceId }
+            ?: item.mediaSources?.firstOrNull()
+        return source?.mediaStreams.orEmpty().filter { it.type == "Subtitle" }
     }
 
     /**

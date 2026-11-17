@@ -1,6 +1,7 @@
 package com.xxxx.emby_tv.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.xxxx.emby_tv.data.model.MediaSourceInfoDto
 
 /**
  * Emby BaseItemDto 数据模型
@@ -79,6 +80,7 @@ data class BaseItemDto(
      @SerializedName("AlbumId") val albumId: String? = null,
      @SerializedName("SeriesPrimaryImageTag") val seriesPrimaryImageTag: String? = null,
      @SerializedName("MediaStreams") val mediaStreams: List<MediaStreamDto>? = null,
+     @SerializedName("MediaSources") val mediaSources: List<MediaSourceInfoDto>? = null,
      @SerializedName("VideoType") val videoType: String? = null,
      @SerializedName("CriticRating") val criticRating: Float? = null,
      @SerializedName("SeriesStudio") val seriesStudio: String? = null,

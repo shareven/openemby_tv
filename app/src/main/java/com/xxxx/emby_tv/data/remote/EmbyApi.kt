@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Point
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import android.view.WindowManager
@@ -19,7 +20,9 @@ import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.EmbyResponseDto
 import com.xxxx.emby_tv.data.model.MediaDto
 import com.xxxx.emby_tv.data.model.PublicUserDto
+import com.xxxx.emby_tv.data.model.RemoteSubtitleInfoDto
 import com.xxxx.emby_tv.data.model.SessionDto
+import com.xxxx.emby_tv.data.model.SubtitleDownloadResultDto
 import com.xxxx.emby_tv.data.model.VirtualFolderInfoDto
 import com.xxxx.emby_tv.util.ErrorHandler
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +33,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.concurrent.TimeUnit
 
 /**
  * Emby API 接口定义
@@ -462,6 +466,83 @@ object EmbyApi {
     }
 
     /**
+     * 搜索在线字幕
+     *
+     * 对应 GET /Items/{Id}/RemoteSearch/Subtitles/{Language}
+     * 需要用户具备字幕下载/管理权限；部分服务器版本还会校验 Emby Premiere。
+     */
+    suspend fun searchRemoteSubtitles(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String,
+        itemId: String,
+        language: String,
+        mediaSourceId: String? = null
+    ): List<RemoteSubtitleInfoDto> {
+        val sourceParam = mediaSourceId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "&MediaSourceId=${Uri.encode(it)}" }
+            ?: ""
+        val url = "/Items/${Uri.encode(itemId)}/RemoteSearch/Subtitles/${Uri.encode(language)}" +
+                "?IsPerfectMatch=false&IsForced=false$sourceParam" +
+                "&X-Emby-Token=$apiKey"
+        return httpStream(context, serverUrl, apiKey, deviceId, url, readTimeoutMs = 30_000) { reader ->
+            val type = object : TypeToken<List<RemoteSubtitleInfoDto>>() {}.type
+            gson.fromJson<List<RemoteSubtitleInfoDto>>(reader, type) ?: emptyList()
+        }
+    }
+
+    /**
+     * 下载在线字幕
+     *
+     * 对应 POST /Items/{Id}/RemoteSearch/Subtitles/{SubtitleId}
+     * 返回新增字幕的媒体流索引（NewIndex）；服务端返回空 body 时返回 null。
+     */
+    suspend fun downloadRemoteSubtitle(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String,
+        itemId: String,
+        subtitleId: String,
+        mediaSourceId: String? = null
+    ): Int? {
+        val sourceParam = mediaSourceId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "&MediaSourceId=${Uri.encode(it)}" }
+            ?: ""
+        val url = "/Items/${Uri.encode(itemId)}/RemoteSearch/Subtitles/${Uri.encode(subtitleId)}" +
+                "?X-Emby-Token=$apiKey$sourceParam"
+        val result = httpStream<SubtitleDownloadResultDto?>(
+            context, serverUrl, apiKey, deviceId, url, "POST", null, readTimeoutMs = 120_000
+        ) { reader ->
+            gson.fromJson(reader, SubtitleDownloadResultDto::class.java)
+        }
+        return result?.newIndex?.takeIf { it >= 0 }
+    }
+
+    /**
+     * 获取条目详情（含 MediaSources/MediaStreams）。
+     *
+     * 用于在线字幕下载后：部分 Emby 版本下载接口返回空 body（无 NewIndex），
+     * 需要重新拉取媒体流列表并对比出新增的外挂字幕索引。
+     */
+    suspend fun getItemWithMediaSources(
+        context: Context,
+        serverUrl: String,
+        apiKey: String,
+        deviceId: String,
+        userId: String,
+        itemId: String
+    ): BaseItemDto {
+        return httpAsBaseItemDto(
+            context, serverUrl, apiKey, deviceId,
+            "/Users/$userId/Items/$itemId?Fields=MediaSources&X-Emby-Token=$apiKey"
+        )
+    }
+
+    /**
      * 上报播放进度
      */
     suspend fun reportPlaybackProgress(
@@ -693,9 +774,19 @@ object EmbyApi {
         url: String,
         method: String = "GET",
         body: Any? = null,
+        readTimeoutMs: Long? = null,
         parser: (JsonReader) -> T
     ): T = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
+
+        // 在线字幕搜索/下载由服务端转发到字幕插件，耗时明显长于普通接口，需要独立超时
+        val callClient = if (readTimeoutMs != null) {
+            HttpClient.getClient(context).newBuilder()
+                .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+                .build()
+        } else {
+            HttpClient.getClient(context)
+        }
 
         val connector = if (url.contains("?")) "&" else "?"
         val params = "${connector}deviceId=$deviceId&X-Emby-Client=$CLIENT" +
@@ -715,7 +806,7 @@ object EmbyApi {
         }
 
         try {
-            HttpClient.getClient(context).newCall(requestBuilder.build()).execute().use { response ->
+            callClient.newCall(requestBuilder.build()).execute().use { response ->
                 val responseTime = System.currentTimeMillis()
                 val networkDuration = responseTime - startTime
 

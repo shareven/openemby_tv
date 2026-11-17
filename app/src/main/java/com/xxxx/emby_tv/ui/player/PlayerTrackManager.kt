@@ -115,6 +115,7 @@ object PlayerTrackManager {
         }
 
         if (isMatched) {
+            Log.i(TAG, "Subtitle selected: EmbyIndex=$targetIndex, Label=$targetLabel")
             player.trackSelectionParameters = parametersBuilder.build()
         } else {
             Log.w(TAG, "Unable to match subtitle: EmbyIndex=$targetIndex, OrdinalIndex=$targetOrdinalIndex, Label=$targetLabel")

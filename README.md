@@ -33,7 +33,7 @@
 
 ## 📥 下载 / Download
 
-> 最新版本 / Newest release: v2.0.26
+> 最新版本 / Newest release: v2.0.27
 
 | 最低 Android 版本 | 下载地址 |
 |:------------------:|:--------:|
@@ -60,6 +60,7 @@
 | 💾 | 支持缓冲设置 | Buffer settings support |
 | 🔊 | 支持更多音频本地 ffmpeg 解码 | Extended audio codec support via local ffmpeg |
 | 🌐 | 支持配置 HTTP/SOCKS5 代理（仅代理 Emby 服务） | HTTP/SOCKS5 proxy support (Emby service only) |
+| 💬 | 播放中搜索并下载在线字幕（服务器字幕插件），下载后自动应用 | Search & download online subtitles during playback (server subtitle plugins), auto-applied after download |
 
 > **支持的音频格式**: `flac`, `alac`, `pcm_mulaw`, `pcm_alaw`, `mp3`, `aac`, `ac3`, `eac3`, `dca`, `mlp`, `truehd`
 
