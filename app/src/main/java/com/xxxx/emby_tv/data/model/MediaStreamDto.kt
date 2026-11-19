@@ -58,5 +58,7 @@ data class MediaStreamDto(
     @SerializedName("ExtendedVideoType") val extendedVideoType: String? = null,
     @SerializedName("PixelFormat") val pixelFormat: String? = null,
     @SerializedName("Level") val level: Int? = null,
-    @SerializedName("IsAnamorphic") val isAnamorphic: Boolean? = null
+    @SerializedName("IsAnamorphic") val isAnamorphic: Boolean? = null,
+    // 客户端在线字幕：本地保存路径（非服务器字段，仅播放端合成轨道使用）
+    val localSubtitlePath: String? = null
 )

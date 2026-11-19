@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SwitchAccount
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.runtime.*
@@ -53,6 +54,7 @@ fun MenuDialog(
     onPlaybackSettings: (() -> Unit)? = null,
     onProxySettings: (() -> Unit)? = null,
     onKeySettings: (() -> Unit)? = null,
+    onOnlineSubtitleSettings: (() -> Unit)? = null,
     isShowLogout: Boolean = true
 ) {
     val showThemeSelection = remember { mutableStateOf(false) }
@@ -194,6 +196,18 @@ fun MenuDialog(
                                     text = stringResource(R.string.key_settings),
                                     icon = Icons.Filled.Keyboard,
                                     onClick = { onKeySettings(); onDismiss() },
+                                    primaryColor = currentPrimaryColor
+                                )
+                            }
+                        }
+
+                        // 在线字幕设置项
+                        if (onOnlineSubtitleSettings != null) {
+                            menuItems.add {
+                                MenuListItem(
+                                    text = stringResource(R.string.online_subtitle_settings),
+                                    icon = Icons.Filled.Subtitles,
+                                    onClick = { onOnlineSubtitleSettings(); onDismiss() },
                                     primaryColor = currentPrimaryColor
                                 )
                             }

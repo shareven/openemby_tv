@@ -6,6 +6,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import com.xxxx.emby_tv.data.model.MediaStreamDto
+import java.io.File
 
 /**
  * 字幕配置构建器
@@ -47,6 +48,30 @@ object SubtitleConfigBuilder {
             val codec = track.codec?.lowercase() ?: "srt"
             val label = track.displayTitle ?: "Subtitle"
             val lang = track.language ?: "und"
+
+            // 客户端在线字幕：本地文件直接以 file:// 外挂加载，
+            // 不经过服务器（ASS/SSA 由 media3 原生 SSA 解析器渲染）
+            val localPath = track.localSubtitlePath
+            if (localPath != null) {
+                val mimeType = when {
+                    codec.contains("ass") || codec.contains("ssa") ||
+                            localPath.endsWith(".ass", true) || localPath.endsWith(".ssa", true) ->
+                        MimeTypes.TEXT_SSA
+                    codec.contains("vtt") || localPath.endsWith(".vtt", true) ->
+                        MimeTypes.TEXT_VTT
+                    else -> MimeTypes.APPLICATION_SUBRIP
+                }
+                val uniqueLabel = "$label [$index]"
+                val config = MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(File(localPath)))
+                    .setId(index.toString())
+                    .setMimeType(mimeType)
+                    .setLanguage(lang)
+                    .setLabel(uniqueLabel)
+                    .setSelectionFlags(if (index == selectedSubtitleIndex) C.SELECTION_FLAG_DEFAULT else 0)
+                    .build()
+                subtitleConfigs.add(config)
+                return@forEach
+            }
 
             // 判断是否可以通过URL加载（外置文件，或内嵌轨因压缩等原因需服务器提取）
             val isLoadableSubtitle = track.isExternal == true || index in serverDeliveredIndices

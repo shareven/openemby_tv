@@ -24,6 +24,10 @@ import kotlinx.coroutines.withContext
 
 // 定义一个全局的静态变量作为内存缓存
 private var cachedDvProfiles: List<DvProfileInfo>? = null
+
+// 客户端本地字幕轨的运行时合成 index 起点（与 OnlineSubtitleRepository.LOCAL_TRACK_INDEX_BASE 一致）。
+// 该 index 是 App 本地生成的，Emby 服务器不认识，上报时需换算掉以免污染服务器的字幕选择状态。
+private const val LOCAL_SUBTITLE_TRACK_INDEX_BASE = 9000
 /**
  * 播放器 ViewModel
  * 
@@ -201,7 +205,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Log.e("reportStopped position", position.toString())
         viewModelScope.launch(Dispatchers.IO + NonCancellable) {
             try {
-                val body = buildStoppedBody(mediaId, media, position, selectedSubtitleIndex, selectedAudioIndex, playbackRate)
+                // 本地字幕的 9000+ 合成 index 服务器无法识别，按“关闭字幕”上报；
+                // 真正的字幕选择由 PreferencesManager 按媒体在本地持久化并在进入播放时恢复
+                val reportedSubtitleIndex =
+                    if (selectedSubtitleIndex >= LOCAL_SUBTITLE_TRACK_INDEX_BASE) -1 else selectedSubtitleIndex
+                val body = buildStoppedBody(mediaId, media, position, reportedSubtitleIndex, selectedAudioIndex, playbackRate)
                 repository.stopped(body)
 
                 // 停止活动编码

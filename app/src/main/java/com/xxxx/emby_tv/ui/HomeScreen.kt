@@ -105,6 +105,10 @@ fun HomeScreen(
             onKeySettings = {
                 showMenu = false
                 navController.navigate("key_settings")
+            },
+            onOnlineSubtitleSettings = {
+                showMenu = false
+                navController.navigate("online_subtitle_settings")
             }
         )
     }

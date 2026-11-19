@@ -14,13 +14,14 @@ class LocalServer private constructor(
     private val onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
     private val onSearchReceived: ((String) -> Unit)? = null,
     private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
+    private val onApiKeyReceived: ((String) -> Unit)? = null,
     private val serversProvider: (() -> List<DiscoveredServer>)? = null,
     // 服务器Id -> 唯一用户名（发现的服务器只有一个用户时提供，用于网页自动填入）
     private val serverUserHintsProvider: (() -> Map<String, String>)? = null
 ) : NanoHTTPD(port) {
 
     enum class Mode {
-        LOGIN, SEARCH, PROXY
+        LOGIN, SEARCH, PROXY, APIKEY
     }
 
     companion object {
@@ -61,6 +62,15 @@ class LocalServer private constructor(
             return startInternal(Mode.PROXY, onProxyConfigReceived = onProxyConfigReceived)
         }
 
+        fun startApiKeyServer(
+            themePrimaryDark: Color,
+            themeSecondaryLight: Color,
+            onApiKeyReceived: (String) -> Unit
+        ): LocalServer? {
+            updateThemeColors(themePrimaryDark, themeSecondaryLight)
+            return startInternal(Mode.APIKEY, onApiKeyReceived = onApiKeyReceived)
+        }
+
         private fun updateThemeColors(primary: Color, secondary: Color) {
             val primaryArgb = primary.toArgb()
             val primaryRgb = AndroidColor.rgb(
@@ -83,6 +93,7 @@ class LocalServer private constructor(
             onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
             onSearchReceived: ((String) -> Unit)? = null,
             onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
+            onApiKeyReceived: ((String) -> Unit)? = null,
             serversProvider: (() -> List<DiscoveredServer>)? = null,
             serverUserHintsProvider: (() -> Map<String, String>)? = null
         ): LocalServer? {
@@ -92,7 +103,7 @@ class LocalServer private constructor(
                     val server = LocalServer(
                         port, mode,
                         onLoginConfigReceived, onSearchReceived, onProxyConfigReceived,
-                        serversProvider, serverUserHintsProvider
+                        onApiKeyReceived, serversProvider, serverUserHintsProvider
                     )
                     server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return server
@@ -109,6 +120,7 @@ class LocalServer private constructor(
             Mode.LOGIN -> serveLogin(session)
             Mode.SEARCH -> serveSearch(session)
             Mode.PROXY -> serveProxy(session)
+            Mode.APIKEY -> serveApiKey(session)
         }
     }
 
@@ -659,6 +671,96 @@ class LocalServer private constructor(
                         document.getElementById('label-user').innerText = '用户名（可选）';
                         document.getElementById('label-pass').innerText = '密码（可选）';
                         document.getElementById('scope-text').innerText = '仅代理Emby服务';
+                        document.getElementById('btn-submit').innerText = '发送到电视';
+                    }
+                </script>
+            </body>
+            </html>
+        """.trimIndent()
+        return newFixedLengthResponse(html)
+    }
+
+    private fun serveApiKey(session: IHTTPSession): Response {
+        if (session.method == Method.POST) {
+            try {
+                val files = HashMap<String, String>()
+                session.parseBody(files)
+                val params = session.parameters
+                val apiKey = params["apikey"]?.firstOrNull() ?: ""
+
+                if (apiKey.isNotEmpty()) {
+                    onApiKeyReceived?.invoke(apiKey.trim())
+                    return serveSuccessPage("Key Sent!", "The API key has been sent to your TV.", "密钥已发送！", "API Key 已发送到电视。")
+                }
+            } catch (e: Exception) {
+                ErrorHandler.logError("LocalServer", "Error processing api key", e)
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error parsing request")
+            }
+        }
+
+        val html = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>OpenSubtitles API Key</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta charset="UTF-8">
+                <style>
+                    :root { --theme-primary: $themePrimary; --theme-secondary: $themeSecondary; }
+                    body {
+                        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                        padding: 0; margin: 0;
+                        background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary));
+                        color: white;
+                        display: flex; justify-content: center; align-items: center;
+                        min-height: 100vh;
+                    }
+                    .container {
+                        background: rgba(0, 0, 0, 0.2);
+                        padding: 40px; border-radius: 16px;
+                        backdrop-filter: blur(10px);
+                        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+                        width: 90%; max-width: 400px;
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                    }
+                    h2 { text-align: center; margin-bottom: 10px; font-weight: 300; }
+                    .tip { text-align: center; color: #ddd; font-size: 13px; margin-bottom: 24px; line-height: 1.6; }
+                    input {
+                        width: 100%; padding: 14px; margin-bottom: 20px;
+                        box-sizing: border-box;
+                        background: rgba(0, 0, 0, 0.3);
+                        border: 1px solid rgba(255, 255, 255, 0.2);
+                        border-radius: 8px; color: white; font-size: 16px;
+                    }
+                    input::placeholder { color: rgba(255, 255, 255, 0.5); }
+                    input:focus { border-color: var(--theme-primary); outline: none; }
+                    button {
+                        width: 100%; padding: 14px;
+                        background: white; color: black;
+                        border: none; border-radius: 8px;
+                        font-size: 16px; font-weight: bold; cursor: pointer;
+                    }
+                    a { color: white; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h2 id="form-title">OpenSubtitles API Key</h2>
+                    <p class="tip" id="tip-text">
+                        Register a free account at opensubtitles.com,<br>
+                        then create an API key on the Developers page.
+                    </p>
+                    <form method="POST">
+                        <input type="text" name="apikey" id="input-key" placeholder="Paste API key here" required autofocus>
+                        <button type="submit" id="btn-submit">Send to TV</button>
+                    </form>
+                </div>
+                <script>
+                    if (navigator.language.startsWith('zh')) {
+                        document.getElementById('form-title').innerText = 'OpenSubtitles API Key';
+                        document.getElementById('tip-text').innerHTML =
+                            '在 opensubtitles.com 免费注册账号，<br>然后在开发者页面创建 API Key。';
+                        document.getElementById('input-key').placeholder = '粘贴 API Key';
                         document.getElementById('btn-submit').innerText = '发送到电视';
                     }
                 </script>

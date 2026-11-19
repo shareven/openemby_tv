@@ -2,6 +2,8 @@ package com.xxxx.emby_tv.ui.components
 
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,8 +15,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Search
@@ -29,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,17 +47,26 @@ import com.xxxx.emby_tv.R
 import java.util.Locale
 import com.xxxx.emby_tv.Utils
 import com.xxxx.emby_tv.Utils.formatFileSize
+import com.xxxx.emby_tv.data.local.PreferencesManager
 import com.xxxx.emby_tv.data.repository.EmbyRepository
 import com.xxxx.emby_tv.data.model.BaseItemDto
 import com.xxxx.emby_tv.data.model.MediaDto
 import com.xxxx.emby_tv.data.model.MediaSourceInfoDto
 import com.xxxx.emby_tv.data.model.MediaStreamDto
 import com.xxxx.emby_tv.data.model.RemoteSubtitleInfoDto
+import com.xxxx.emby_tv.data.remote.subtitle.OnlineSubtitleQuery
+import com.xxxx.emby_tv.data.remote.subtitle.OnlineSubtitleResult
+import com.xxxx.emby_tv.data.remote.subtitle.OpenSubtitlesProvider
+import com.xxxx.emby_tv.data.remote.subtitle.ThunderSubtitleProvider
+import com.xxxx.emby_tv.data.repository.OnlineSubtitleRepository
 import com.xxxx.emby_tv.ui.player.SubtitleLanguageResolver
 import com.xxxx.emby_tv.util.ErrorHandler
 import com.xxxx.emby_tv.util.ExternalPlayerHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val SUBTITLE_SYNC_STEP_MS = 250L
 private const val SUBTITLE_SYNC_MAX_STEPS = 120
@@ -76,8 +90,8 @@ fun PlayerMenu(
     onToggleFavorite: () -> Unit,
     serverUrl: String,
     repository: EmbyRepository,
-    position:Long,
-    onRePlayer: (BaseItemDto,Long) -> Unit,
+    position: Long,
+    onRePlayer: (BaseItemDto, Long) -> Unit,
     onNavigateToPlayer: (BaseItemDto) -> Unit,
     autoSkipIntro: Boolean = false,
     onAutoSkipIntroChange: (Boolean) -> Unit = {},
@@ -102,7 +116,9 @@ fun PlayerMenu(
     allMediaSources: List<MediaSourceInfoDto> = emptyList(),
     onSourceSelect: (MediaSourceInfoDto) -> Unit = {},
     onLaunchExternalPlayer: (String?) -> Unit = {},
-    onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit = { _, _ -> }
+    onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit = { _, _ -> },
+    streamUrl: String? = null,
+    onLocalSubtitleDownloaded: (OnlineSubtitleRepository.SavedLocalSubtitle, String) -> Unit = { _, _ -> },
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
 
@@ -164,10 +180,11 @@ fun PlayerMenu(
 
                 Column {
                     // Tabs
+                    // contentPadding：TV 材质聚焦默认放大 1.1x，用内容边距给两端
+                    // 聚焦的 Tab 留绘制空间，避免被 LazyRow 主轴裁切
                     LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(20.dp),
                         horizontalArrangement = Arrangement.Start
                     ) {
                         itemsIndexed(tabs) { index, title ->
@@ -192,7 +209,8 @@ fun PlayerMenu(
                                 modifier = Modifier
                                     .padding(horizontal = 4.dp)
                                     .onFocusChanged {
-                                        if (it.isFocused && !onlineSubtitleSearchActive) selectedTab = index
+                                        if (it.isFocused && !onlineSubtitleSearchActive) selectedTab =
+                                            index
                                     },
                                 shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
                                 colors = ClickableSurfaceDefaults.colors(
@@ -222,10 +240,18 @@ fun PlayerMenu(
                     Box(modifier = Modifier.weight(1f)) {
                         val currentTabName = getTabContent(selectedTab)
                         // Info 页展示当前选中的片源信息（多版本切换后随之更新）
-                        val currentSource = mediaSources.firstOrNull { it.id == currentMediaSourceId }
-                            ?: mediaSources.firstOrNull()
+                        val currentSource =
+                            mediaSources.firstOrNull { it.id == currentMediaSourceId }
+                                ?: mediaSources.firstOrNull()
                         when (currentTabName) {
-                            "Info" -> InfoTab(mediaInfo, media, isFavorite, onToggleFavorite, currentSource)
+                            "Info" -> InfoTab(
+                                mediaInfo,
+                                media,
+                                isFavorite,
+                                onToggleFavorite,
+                                currentSource
+                            )
+
                             "Episodes" -> EpisodesTab(
                                 mediaInfo,
                                 serverUrl,
@@ -262,6 +288,13 @@ fun PlayerMenu(
                                 repository = repository,
                                 onDismiss = onDismiss,
                                 onSubtitleDownloaded = onSubtitleDownloaded,
+                                searchFilename = resolveSearchFilename(
+                                    mediaSources,
+                                    currentMediaSourceId
+                                ),
+                                searchTitle = buildSearchTitle(mediaInfo),
+                                streamUrl = streamUrl,
+                                onLocalSubtitleDownloaded = onLocalSubtitleDownloaded,
                                 searchActive = onlineSubtitleSearchActive,
                                 onSearchActiveChange = { onlineSubtitleSearchActive = it }
                             )
@@ -273,12 +306,14 @@ fun PlayerMenu(
                                 playbackCorrection,
                                 onPlaybackCorrectionChange
                             )
+
                             "IntroSkip" -> IntroSkipTab(
                                 autoSkipIntro,
                                 onAutoSkipIntroChange,
                                 mediaInfo,
                                 repository
                             )
+
                             "Buffer" -> BufferSettingsTab(
                                 minBufferMs = minBufferMs,
                                 onMinBufferMsChange = onMinBufferMsChange,
@@ -293,7 +328,7 @@ fun PlayerMenu(
                                 onResetDefault = onResetBufferDefaults,
                                 onReplay = {
                                     onDismiss()
-                                    onRePlayer(mediaInfo,position)
+                                    onRePlayer(mediaInfo, position)
                                 }
                             )
 
@@ -311,7 +346,7 @@ fun InfoTab(
     media: MediaDto,
     isFavorite: Boolean,
     onToggleFavorite: () -> Unit,
-    currentSource: MediaSourceInfoDto? = null
+    currentSource: MediaSourceInfoDto? = null,
 ) {
 
     val scrollState = rememberScrollState()
@@ -362,7 +397,10 @@ fun InfoTab(
                 (videoStream?.width ?: 0) >= 1280 -> "720P"
                 else -> videoStream?.displayTitle?.split(" ")?.firstOrNull() ?: ""
             }
-            if (resolution.isNotEmpty()) MetaBadge(text = resolution, containerColor = Color(0xFFE50914))
+            if (resolution.isNotEmpty()) MetaBadge(
+                text = resolution,
+                containerColor = Color(0xFFE50914)
+            )
 
             val videoRange = videoStream?.videoRange ?: ""
             if (videoRange.isNotEmpty()) MetaBadge(text = videoRange)
@@ -437,7 +475,7 @@ fun InfoTab(
 @Composable
 fun MetaBadge(
     text: String,
-    containerColor: Color = Color.White.copy(alpha = 0.2f)
+    containerColor: Color = Color.White.copy(alpha = 0.2f),
 ) {
     Surface(
         shape = RoundedCornerShape(4.dp),
@@ -460,7 +498,7 @@ fun EpisodesTab(
     serverUrl: String,
     repository: EmbyRepository,
     onDismiss: () -> Unit,
-    onNavigateToPlayer: (BaseItemDto) -> Unit
+    onNavigateToPlayer: (BaseItemDto) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val seriesId = mediaInfo.seriesId
@@ -548,11 +586,17 @@ fun EpisodesTab(
 
 @Composable
 fun SubtitleTimeOffsetRow(timeOffsetMs: Long, onTimeOffsetChange: (Long) -> Unit) {
-    val steps = (timeOffsetMs / SUBTITLE_SYNC_STEP_MS).toInt().coerceIn(-SUBTITLE_SYNC_MAX_STEPS, SUBTITLE_SYNC_MAX_STEPS)
+    val steps = (timeOffsetMs / SUBTITLE_SYNC_STEP_MS).toInt()
+        .coerceIn(-SUBTITLE_SYNC_MAX_STEPS, SUBTITLE_SYNC_MAX_STEPS)
     val isDefault = steps == 0
     val seconds = steps * SUBTITLE_SYNC_STEP_MS / 1000.0
     val valueText = when {
-        isDefault -> String.format(Locale.US, "0.00s (%s)", stringResource(R.string.subtitle_position_default))
+        isDefault -> String.format(
+            Locale.US,
+            "0.00s (%s)",
+            stringResource(R.string.subtitle_position_default)
+        )
+
         seconds > 0 -> String.format(Locale.US, "+%.2fs", seconds)
         else -> String.format(Locale.US, "%.2fs", seconds)
     }
@@ -685,7 +729,7 @@ fun SubtitleOffsetRow(bottomPadding: Float, onBottomPaddingChange: (Float) -> Un
 private fun OffsetButton(
     text: String,
     enabled: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -724,8 +768,12 @@ fun SubtitlesTab(
     repository: EmbyRepository,
     onDismiss: () -> Unit,
     onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit,
+    searchFilename: String? = null,
+    searchTitle: String? = null,
+    streamUrl: String? = null,
+    onLocalSubtitleDownloaded: (OnlineSubtitleRepository.SavedLocalSubtitle, String) -> Unit = { _, _ -> },
     searchActive: Boolean = false,
-    onSearchActiveChange: (Boolean) -> Unit = {}
+    onSearchActiveChange: (Boolean) -> Unit = {},
 ) {
     var showOnlineSearch by remember { mutableStateOf(false) }
     var hasOpenedSearch by remember { mutableStateOf(false) }
@@ -748,10 +796,14 @@ fun SubtitlesTab(
             mediaId = mediaId,
             mediaSourceId = mediaSourceId,
             repository = repository,
+            searchFilename = searchFilename,
+            searchTitle = searchTitle,
+            streamUrl = streamUrl,
             existingTracks = tracks,
             onBack = { showOnlineSearch = false },
             onDismiss = onDismiss,
-            onSubtitleDownloaded = onSubtitleDownloaded
+            onSubtitleDownloaded = onSubtitleDownloaded,
+            onLocalSubtitleDownloaded = onLocalSubtitleDownloaded
         )
     } else {
         SubtitleTrackList(
@@ -789,7 +841,7 @@ private fun SubtitleTrackList(
     onTimeOffsetChange: (Long) -> Unit,
     entryFocusRequester: FocusRequester,
     onSearchOnline: () -> Unit,
-    onEntryFocused: () -> Unit = {}
+    onEntryFocused: () -> Unit = {},
 ) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
         item {
@@ -852,8 +904,11 @@ private fun SubtitleTrackList(
         }
         items(tracks) { track ->
             val index = (track.index) ?: -1
-            val title =
-                (track.displayTitle) ?: (track.language) ?: "Unknown"
+            val baseTitle = (track.displayTitle) ?: (track.language) ?: "Unknown"
+            // 客户端下载的字幕与服务器字幕混在同一列表，加前缀区分来源
+            val title = if (track.localSubtitlePath != null) {
+                stringResource(R.string.subtitle_local_track_label, baseTitle)
+            } else baseTitle
 
             val isSelected = selectedIndex == index
 
@@ -901,7 +956,7 @@ private fun SubtitleTrackList(
 private fun OnlineSubtitleEntryRow(
     focusRequester: FocusRequester,
     onFocusGained: () -> Unit = {},
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -948,7 +1003,10 @@ private fun OnlineSubtitleEntryRow(
 }
 
 /**
- * 在线字幕搜索页：语言选择、搜索、结果下载。
+ * 在线字幕搜索页：来源切换（服务器 / 在线字幕站）、语言选择、搜索、结果下载。
+ *
+ * 服务器搜索沿用 Emby 接口；在线源（迅雷 / OpenSubtitles）由客户端直连，
+ * 适用于第三方数据源等服务器没有字幕插件的场景。
  *
  * 权限错误、网络错误和空结果都显示在结果区域，不使用弹窗/Toast；
  * 只有下载成功并关闭菜单时由播放页给出成功提示。
@@ -958,29 +1016,82 @@ private fun OnlineSubtitleSearchPanel(
     mediaId: String,
     mediaSourceId: String?,
     repository: EmbyRepository,
+    searchFilename: String?,
+    searchTitle: String?,
+    streamUrl: String?,
     existingTracks: List<MediaStreamDto>,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
-    onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit
+    onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit,
+    onLocalSubtitleDownloaded: (OnlineSubtitleRepository.SavedLocalSubtitle, String) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedLanguage by remember { mutableStateOf<String?>(null) }
+    val onlineRepository = remember { OnlineSubtitleRepository.getInstance(context) }
+    val prefs = remember { PreferencesManager(context) }
+    // 语言改动频率低，优先用上次选择并持久化；未选过时才走自动解析
+    var selectedLanguage by remember {
+        mutableStateOf<String?>(prefs.subtitleSearchLanguage.ifBlank { null })
+    }
+    var showLanguageDialog by remember { mutableStateOf(false) }
     var searchState by remember {
         mutableStateOf<SubtitleSearchUiState>(SubtitleSearchUiState.ResolvingLanguage)
     }
     var downloadErrorMessage by remember { mutableStateOf<String?>(null) }
     var downloadingId by remember { mutableStateOf<String?>(null) }
+
+    // ===== 在线字幕源状态 =====
+    var source by remember { mutableStateOf(OnlineSubtitleSourceKind.SERVER) }
+    var onlineState by remember { mutableStateOf<OnlineSearchUiState>(OnlineSearchUiState.Idle) }
+    var onlineKeyword by remember { mutableStateOf(searchFilename ?: searchTitle ?: "") }
+    var showKeywordDialog by remember { mutableStateOf(false) }
+    var downloadingOnlineId by remember { mutableStateOf<String?>(null) }
+    var onlineDownloadError by remember { mutableStateOf<String?>(null) }
+    // 迅雷 CID：同一播放地址只算一次
+    var cachedCid by remember { mutableStateOf<String?>(null) }
+    // 同一时刻只保留一次搜索：快速切换来源/语言时取消旧搜索，避免旧结果覆盖新结果
+    var searchJob by remember { mutableStateOf<Job?>(null) }
+
+    // OS 可用性做成可变状态：面板内扫码配置成功后即时刷新来源 chips
+    var thunderAvailable by remember { mutableStateOf(prefs.thunderSubtitleEnabled) }
+    var osEnabled by remember { mutableStateOf(prefs.openSubtitlesEnabled) }
+    var osKeyConfigured by remember { mutableStateOf(prefs.openSubtitlesApiKey.isNotBlank()) }
+    val opensubtitlesAvailable = osEnabled && osKeyConfigured
+    val onlineAvailable = thunderAvailable || opensubtitlesAvailable
+    // 选中 OpenSubtitles 且未配置 Key：面板下方直接内嵌二维码配置
+    val osSetupMode = source == OnlineSubtitleSourceKind.OPENSUBTITLES && !opensubtitlesAvailable
+
+    // 面板内扫码配置：内嵌二维码与“放大”弹窗共用同一个 LocalServer
+    var showOsKeyConfig by remember { mutableStateOf(false) }
+    var osConfigServer by remember { mutableStateOf<com.xxxx.emby_tv.LocalServer?>(null) }
+    var osConfigQr by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var osConfigAddress by remember { mutableStateOf("") }
+    val themeColor = com.xxxx.emby_tv.ui.theme.ThemeColorManager
+        .getThemeColorById(context, prefs.themeId)
+
     // 挂在搜索页第一个可见元素（返回按钮）上，进入页面时立即抢回焦点
     val initialFocusRequester = remember { FocusRequester() }
     // 挂在第一条搜索结果上：下载失败后焦点若被系统夺走（跳到 Tab 行），请求回到结果区
     val firstResultFocusRequester = remember { FocusRequester() }
 
-    // 下载结束但仍停留在搜索页（即下载失败）时，确保焦点回到结果列表
+    // 服务器字幕下载结束但仍停留在搜索页（即下载失败）时，确保焦点回到结果列表
     LaunchedEffect(downloadingId, downloadErrorMessage) {
         if (downloadingId == null && downloadErrorMessage != null) {
             runCatching { firstResultFocusRequester.requestFocus() }
         }
+    }
+
+    // 在线字幕下载失败时同样恢复焦点
+    LaunchedEffect(downloadingOnlineId, onlineDownloadError) {
+        if (downloadingOnlineId == null && onlineDownloadError != null) {
+            runCatching { firstResultFocusRequester.requestFocus() }
+        }
+    }
+
+    /** 发起搜索：取消上一次，避免快速切换来源/语言时旧结果后到覆盖新结果 */
+    fun launchSearch(task: suspend () -> Unit) {
+        searchJob?.cancel()
+        searchJob = scope.launch { task() }
     }
 
     suspend fun runSearch(language: String) {
@@ -993,10 +1104,144 @@ private fun OnlineSubtitleSearchPanel(
             } else {
                 SubtitleSearchUiState.Success(items)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             ErrorHandler.logError("PlayerMenu", "搜索在线字幕失败", e)
             searchState = subtitleSearchErrorState(e, context)
         }
+    }
+
+    suspend fun runOnlineSearch() {
+        val keyword = onlineKeyword.trim()
+        if (keyword.isBlank()) return
+        onlineDownloadError = null
+        onlineState = OnlineSearchUiState.Searching
+        try {
+            val enabled = onlineRepository.enabledProviders()
+            val providers = when (source) {
+                OnlineSubtitleSourceKind.THUNDER -> enabled.filter { it.id == ThunderSubtitleProvider.ID }
+                OnlineSubtitleSourceKind.OPENSUBTITLES -> enabled.filter { it.id == OpenSubtitlesProvider.ID }
+                else -> enabled
+            }
+            if (providers.isEmpty()) {
+                onlineState = OnlineSearchUiState.Error(
+                    context.getString(R.string.online_subtitle_no_provider)
+                )
+                return
+            }
+            // 含迅雷时对播放流取样计算 CID（约 60KB Range 请求），实现精准匹配
+            val cid =
+                if (providers.any { it.id == ThunderSubtitleProvider.ID } && cachedCid == null) {
+                    onlineRepository.computeCid(streamUrl).also { cachedCid = it }
+                } else {
+                    cachedCid
+                }
+            val results = onlineRepository.search(
+                query = OnlineSubtitleQuery(
+                    filename = searchFilename,
+                    title = searchTitle,
+                    language = selectedLanguage ?: "zh-CN"
+                ),
+                providers = providers,
+                cid = cid,
+                keyword = keyword
+            )
+            onlineState = if (results.isEmpty()) {
+                OnlineSearchUiState.Empty
+            } else {
+                OnlineSearchUiState.Success(results)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorHandler.logError("PlayerMenu", "在线字幕搜索失败", e)
+            val message = when (e.message) {
+                "opensubtitles_key_invalid" -> context.getString(R.string.opensubtitles_key_invalid)
+                else -> e.message?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.online_subtitle_search_failed)
+            }
+            onlineState = OnlineSearchUiState.Error(message)
+        }
+    }
+
+    fun switchSource(target: OnlineSubtitleSourceKind) {
+        if (source == target) return
+        source = target
+        downloadErrorMessage = null
+        onlineDownloadError = null
+        // 切换来源时清空上一个来源的搜索结果，避免迅雷结果残留在 OpenSubtitles 页
+        onlineState = OnlineSearchUiState.Idle
+        // 切到在线源自动按新来源重搜；OpenSubtitles 未配置时转为配置页，不搜索
+        val targetUsable = when (target) {
+            OnlineSubtitleSourceKind.OPENSUBTITLES -> opensubtitlesAvailable
+            else -> true
+        }
+        if (target != OnlineSubtitleSourceKind.SERVER && targetUsable) {
+            launchSearch { runOnlineSearch() }
+        }
+    }
+
+    /** 选择语言（Tab 聚焦或点击都会触发），选中后立即按新语言重搜 */
+    fun selectLanguage(code: String) {
+        if (selectedLanguage == code) return
+        selectedLanguage = code
+        prefs.subtitleSearchLanguage = code
+        downloadErrorMessage = null
+        onlineDownloadError = null
+        when (source) {
+            OnlineSubtitleSourceKind.SERVER -> launchSearch { runSearch(code) }
+            else -> launchSearch { runOnlineSearch() }
+        }
+    }
+
+    /** 保存 OpenSubtitles Key（面板内扫码/更改共用），保存后自动按当前来源搜索 */
+    fun saveOsKey(key: String) {
+        val trimmed = key.trim()
+        if (trimmed.isBlank()) return
+        prefs.openSubtitlesApiKey = trimmed
+        prefs.openSubtitlesEnabled = true
+        osKeyConfigured = true
+        osEnabled = true
+        android.widget.Toast.makeText(
+            context,
+            context.getString(R.string.opensubtitles_key_saved),
+            android.widget.Toast.LENGTH_SHORT
+        ).show()
+        // 配置完成：立即用 OpenSubtitles 搜一次，让用户直接看到效果
+        if (source == OnlineSubtitleSourceKind.OPENSUBTITLES) {
+            onlineState = OnlineSearchUiState.Idle
+            launchSearch { runOnlineSearch() }
+        }
+    }
+
+    // 配置模式启动/停止本机网页服务（面板销毁时一并停止）
+    LaunchedEffect(osSetupMode) {
+        if (osSetupMode && osConfigServer == null) {
+            withContext(Dispatchers.IO) {
+                val server = com.xxxx.emby_tv.LocalServer.startApiKeyServer(
+                    themeColor.primaryDark,
+                    themeColor.secondaryLight
+                ) { key -> scope.launch { saveOsKey(key) } }
+                osConfigServer = server
+                if (server != null) {
+                    com.xxxx.emby_tv.QrCodeUtils.getLocalIpAddress()?.let { ip ->
+                        val addr = "http://$ip:${server.listeningPort}"
+                        osConfigAddress = addr
+                        osConfigQr = com.xxxx.emby_tv.QrCodeUtils
+                            .generateQrCode(addr, 400)?.asImageBitmap()
+                    }
+                }
+            }
+        } else if (!osSetupMode && osConfigServer != null) {
+            withContext(Dispatchers.IO) { osConfigServer?.stop() }
+            osConfigServer = null
+            osConfigQr = null
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { osConfigServer?.stop() }
     }
 
     fun download(info: RemoteSubtitleInfoDto) {
@@ -1030,7 +1275,8 @@ private fun OnlineSubtitleSearchPanel(
                     onSubtitleDownloaded(newIndex, info)
                     onDismiss()
                 } else {
-                    downloadErrorMessage = context.getString(R.string.subtitle_download_missing_index)
+                    downloadErrorMessage =
+                        context.getString(R.string.subtitle_download_missing_index)
                 }
             } catch (e: Exception) {
                 ErrorHandler.logError("PlayerMenu", "下载在线字幕失败", e)
@@ -1041,12 +1287,33 @@ private fun OnlineSubtitleSearchPanel(
         }
     }
 
+    fun downloadOnline(result: OnlineSubtitleResult) {
+        if (downloadingOnlineId != null) return
+        scope.launch {
+            downloadingOnlineId = result.id
+            onlineDownloadError = null
+            try {
+                val saved = onlineRepository.downloadAndSave(result, mediaId)
+                val displayName = saved.fileName.substringBeforeLast('.')
+                onLocalSubtitleDownloaded(saved, displayName)
+                onDismiss()
+            } catch (e: Exception) {
+                ErrorHandler.logError("PlayerMenu", "下载在线字幕失败", e)
+                onlineDownloadError = e.message?.takeIf { it.isNotBlank() }
+                    ?: context.getString(R.string.subtitle_download_failed)
+            } finally {
+                downloadingOnlineId = null
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         // 等一帧让焦点系统的恢复流程先结束（避免焦点被 Tab 行抢走导致页面被切走），
         // 再把焦点移动到搜索页内的返回按钮上
         withFrameNanos { }
         runCatching { initialFocusRequester.requestFocus() }
-        val language = SubtitleLanguageResolver.resolveDefaultLanguage(
+        // 已记住上次选择则直接用；否则才从媒体默认轨道解析（解析值不算“选择”，不持久化）
+        val language = selectedLanguage ?: SubtitleLanguageResolver.resolveDefaultLanguage(
             context = context,
             repository = repository,
             itemId = mediaId
@@ -1071,8 +1338,8 @@ private fun OnlineSubtitleSearchPanel(
         val current = selectedLanguage
         if (current != null && current !in this) add(current)
     }
-    val isBusy = searchState is SubtitleSearchUiState.ResolvingLanguage ||
-            searchState is SubtitleSearchUiState.Searching
+    val thunderLabel = stringResource(R.string.subtitle_source_thunder)
+    val openSubsLabel = stringResource(R.string.subtitle_source_opensubtitles)
 
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
         item {
@@ -1116,87 +1383,262 @@ private fun OnlineSubtitleSearchPanel(
         item {
             Spacer(modifier = Modifier.height(16.dp))
         }
+
+        // ===== 来源切换：服务器 / 在线字幕站 =====
         item {
-            Text(
-                text = stringResource(R.string.subtitle_search_language),
-                style = TvMaterialTheme.typography.titleMedium,
-                color = Color.White,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-        }
-        item {
-            LazyRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                items(languageCodes) { code ->
-                    val isSelected = selectedLanguage == code
-                    Surface(
-                        onClick = {
-                            selectedLanguage = code
-                            downloadErrorMessage = null
-                        },
-                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = if (isSelected) {
-                                TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
-                            } else Color.Transparent,
-                            contentColor = Color.White,
-                            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
-                            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                OnlineSourceChip(
+                    label = stringResource(R.string.subtitle_source_server),
+                    isSelected = source == OnlineSubtitleSourceKind.SERVER,
+                    onClick = { switchSource(OnlineSubtitleSourceKind.SERVER) },
+                    onFocus = { switchSource(OnlineSubtitleSourceKind.SERVER) }
+                )
+                if (thunderAvailable && opensubtitlesAvailable) {
+                    OnlineSourceChip(
+                        label = stringResource(R.string.subtitle_source_online_all),
+                        isSelected = source == OnlineSubtitleSourceKind.ONLINE_ALL,
+                        onClick = { switchSource(OnlineSubtitleSourceKind.ONLINE_ALL) },
+                        onFocus = { switchSource(OnlineSubtitleSourceKind.ONLINE_ALL) }
+                    )
+                }
+                if (thunderAvailable) {
+                    OnlineSourceChip(
+                        label = thunderLabel,
+                        isSelected = source == OnlineSubtitleSourceKind.THUNDER,
+                        onClick = { switchSource(OnlineSubtitleSourceKind.THUNDER) },
+                        onFocus = { switchSource(OnlineSubtitleSourceKind.THUNDER) }
+                    )
+                }
+                // OpenSubtitles 始终显示：未配置 Key 时选中即进入扫码配置页
+                OnlineSourceChip(
+                    label = openSubsLabel,
+                    isSelected = source == OnlineSubtitleSourceKind.OPENSUBTITLES,
+                    onClick = { switchSource(OnlineSubtitleSourceKind.OPENSUBTITLES) },
+                    onFocus = { switchSource(OnlineSubtitleSourceKind.OPENSUBTITLES) }
+                )
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // ===== OpenSubtitles 配置区 =====
+        if (osSetupMode) {
+            // 未配置：内嵌二维码 + 放大按钮，直接在面板内完成配置
+            item {
+                Text(
+                    text = stringResource(R.string.opensubtitles_api_key),
+                    style = TvMaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            item {
+                Text(
+                    text = stringResource(R.string.online_subtitle_opensubtitles_desc),
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+            }
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (osConfigQr != null) {
+                        Image(
+                            bitmap = osConfigQr!!,
+                            contentDescription = stringResource(R.string.opensubtitles_scan_hint),
+                            modifier = Modifier
+                                .size(150.dp)
+                                .background(Color.White, RoundedCornerShape(12.dp))
+                                .padding(8.dp)
                         )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(60.dp),
+                            color = TvMaterialTheme.colorScheme.secondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(32.dp))
+                    Column {
+                        Text(
+                            text = stringResource(R.string.opensubtitles_scan_hint),
+                            style = TvMaterialTheme.typography.titleSmall,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = osConfigAddress,
+                            style = TvMaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.6f)
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Surface(
+                            onClick = { showOsKeyConfig = true },
+                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                contentColor = Color.White,
+                                focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                                focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                            )
+                        ) {
+                            Text(
+                                text = stringResource(R.string.online_subtitle_enlarge_qr),
+                                style = TvMaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        } else if (source != OnlineSubtitleSourceKind.SERVER && osKeyConfigured) {
+            // 已配置：提供“更改 Key”入口（弹大二维码，不中断当前搜索列表）
+            item {
+                Surface(
+                    onClick = { showOsKeyConfig = true },
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        contentColor = Color.White,
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
+                ) {
+                    Text(
+                        text = stringResource(R.string.opensubtitles_change_key),
+                        style = TvMaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+
+        // 配置模式下不显示语言/关键词（该区域被二维码配置区替代）
+        if (!osSetupMode) {
+            // ===== 语言（改动频率低，改为下拉按钮，点击弹窗选择） =====
+            item {
+                Text(
+                    text = stringResource(R.string.subtitle_search_language),
+                    style = TvMaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            item {
+                Surface(
+                    onClick = { showLanguageDialog = true },
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        contentColor = Color.White,
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = languageLabels[code] ?: code,
-                            style = TvMaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                            text = languageLabels[selectedLanguage] ?: selectedLanguage.orEmpty(),
+                            style = TvMaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        // 迅雷源参与搜索时说明其语言行为，避免“切换语言结果不变”的困惑
+        if (source != OnlineSubtitleSourceKind.SERVER && thunderAvailable &&
+            (source == OnlineSubtitleSourceKind.THUNDER || source == OnlineSubtitleSourceKind.ONLINE_ALL)
+        ) {
+            item {
+                Text(
+                    text = stringResource(R.string.subtitle_thunder_language_hint),
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.45f),
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
+        // ===== 在线源：搜索关键词（可编辑，默认媒体文件名），位于语言下方 =====
+        if (source != OnlineSubtitleSourceKind.SERVER) {
+            item {
+                Text(
+                    text = stringResource(R.string.online_subtitle_search_keyword),
+                    style = TvMaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            item {
+                Surface(
+                    onClick = { showKeywordDialog = true },
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        contentColor = Color.White,
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = onlineKeyword.ifBlank {
+                                stringResource(R.string.online_subtitle_search_keyword)
+                            },
+                            style = TvMaterialTheme.typography.bodyLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
         }
+        // 搜索按钮已移除：切换来源/语言、编辑关键词都会自动搜索
         item {
             Spacer(modifier = Modifier.height(12.dp))
         }
-        item {
-            Surface(
-                onClick = {
-                    selectedLanguage?.let { language ->
-                        scope.launch { runSearch(language) }
-                    }
-                },
-                enabled = selectedLanguage != null && !isBusy,
-                shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    contentColor = Color.White,
-                    focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
-                    focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
-                    disabledContainerColor = Color.White.copy(alpha = 0.05f),
-                    disabledContentColor = Color.White.copy(alpha = 0.3f)
-                ),
-                modifier = Modifier
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.search), style = TvMaterialTheme.typography.bodyLarge)
-                }
-            }
-        }
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
-        }
+        } // end !osSetupMode
 
         downloadErrorMessage?.let { message ->
             item {
@@ -1209,56 +1651,623 @@ private fun OnlineSubtitleSearchPanel(
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }
-
-        when (val state = searchState) {
-            SubtitleSearchUiState.ResolvingLanguage -> item {
-                SubtitleSearchStatusRow(stringResource(R.string.subtitle_search_resolving_language))
-            }
-
-            SubtitleSearchUiState.Searching -> item {
-                SubtitleSearchStatusRow(stringResource(R.string.searching) + "…")
-            }
-
-            is SubtitleSearchUiState.Error -> item {
-                val title = when (state.kind) {
-                    SubtitleSearchErrorKind.Permission -> stringResource(R.string.subtitle_search_permission_title)
-                    SubtitleSearchErrorKind.LoginExpired -> stringResource(R.string.subtitle_search_login_expired_title)
-                    SubtitleSearchErrorKind.NotFound -> stringResource(R.string.subtitle_search_not_found_title)
-                    SubtitleSearchErrorKind.Network,
-                    SubtitleSearchErrorKind.Unknown -> stringResource(R.string.subtitle_search_failed)
-                }
+        onlineDownloadError?.let { message ->
+            item {
                 InlineSubtitleErrorCard(
-                    title = title,
-                    message = state.message,
-                    onRetry = selectedLanguage?.let { language ->
-                        { scope.launch { runSearch(language) } }
-                    }
+                    title = stringResource(R.string.subtitle_download_failed),
+                    message = message
                 )
             }
-
-            is SubtitleSearchUiState.Empty -> item {
-                InlineSubtitleEmptyCard(stringResource(R.string.subtitle_search_empty))
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
             }
-
-            is SubtitleSearchUiState.Success -> itemsIndexed(state.items) { itemIndex, info ->
-                OnlineSubtitleResultRow(
-                    info = info,
-                    isDownloading = downloadingId == info.id,
-                    // 下载中保持可聚焦（禁用会导致焦点被系统夺走跳到 Tab 行），
-                    // 重复点击由 download() 内部守卫拦截
-                    enabled = info.id != null &&
-                            isSupportedRemoteSubtitleFormat(info.format),
-                    onClick = { download(info) },
-                    modifier = if (itemIndex == 0) {
-                        Modifier.focusRequester(firstResultFocusRequester)
-                    } else {
-                        Modifier
-                    }
-                )
-            }
-
-            SubtitleSearchUiState.Idle -> Unit
         }
+
+        if (source == OnlineSubtitleSourceKind.SERVER) {
+            when (val state = searchState) {
+                SubtitleSearchUiState.ResolvingLanguage -> item {
+                    SubtitleSearchStatusRow(stringResource(R.string.subtitle_search_resolving_language))
+                }
+
+                SubtitleSearchUiState.Searching -> item {
+                    SubtitleSearchStatusRow(stringResource(R.string.searching) + "…")
+                }
+
+                is SubtitleSearchUiState.Error -> {
+                    item {
+                        val title = when (state.kind) {
+                            SubtitleSearchErrorKind.Permission -> stringResource(R.string.subtitle_search_permission_title)
+                            SubtitleSearchErrorKind.LoginExpired -> stringResource(R.string.subtitle_search_login_expired_title)
+                            SubtitleSearchErrorKind.NotFound -> stringResource(R.string.subtitle_search_not_found_title)
+                            SubtitleSearchErrorKind.Network,
+                            SubtitleSearchErrorKind.Unknown,
+                                -> stringResource(R.string.subtitle_search_failed)
+                        }
+                        InlineSubtitleErrorCard(
+                            title = title,
+                            message = state.message,
+                            onRetry = selectedLanguage?.let { language ->
+                                { launchSearch { runSearch(language) } }
+                            }
+                        )
+                    }
+                    // 服务器搜索失败（无插件/无权限）时提示切换到在线源
+                    if (onlineAvailable) {
+                        item {
+                            SwitchToOnlineHint(
+                                onClick = {
+                                    switchSource(
+                                        when {
+                                            thunderAvailable && opensubtitlesAvailable ->
+                                                OnlineSubtitleSourceKind.ONLINE_ALL
+
+                                            thunderAvailable -> OnlineSubtitleSourceKind.THUNDER
+                                            else -> OnlineSubtitleSourceKind.OPENSUBTITLES
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
+                is SubtitleSearchUiState.Empty -> {
+                    item {
+                        InlineSubtitleEmptyCard(stringResource(R.string.subtitle_search_empty))
+                    }
+                    if (onlineAvailable) {
+                        item {
+                            SwitchToOnlineHint(
+                                onClick = {
+                                    switchSource(
+                                        when {
+                                            thunderAvailable && opensubtitlesAvailable ->
+                                                OnlineSubtitleSourceKind.ONLINE_ALL
+
+                                            thunderAvailable -> OnlineSubtitleSourceKind.THUNDER
+                                            else -> OnlineSubtitleSourceKind.OPENSUBTITLES
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
+                is SubtitleSearchUiState.Success -> {
+                    // 过滤内置播放器无法显示的格式（smi/sub 等），只展示可用的
+                    val visibleItems =
+                        state.items.filter { isSupportedRemoteSubtitleFormat(it.format) }
+                    if (visibleItems.isEmpty()) {
+                        item {
+                            InlineSubtitleEmptyCard(stringResource(R.string.subtitle_search_empty))
+                        }
+                    } else {
+                        itemsIndexed(visibleItems) { itemIndex, info ->
+                            OnlineSubtitleResultRow(
+                                info = info,
+                                isDownloading = downloadingId == info.id,
+                                // 下载中保持可聚焦（禁用会导致焦点被系统夺走跳到 Tab 行），
+                                // 重复点击由 download() 内部守卫拦截
+                                enabled = info.id != null,
+                                onClick = { download(info) },
+                                modifier = if (itemIndex == 0) {
+                                    Modifier.focusRequester(firstResultFocusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                        }
+                    }
+                }
+
+                SubtitleSearchUiState.Idle -> Unit
+            }
+        } else if (!osSetupMode) {
+            // 结果按当前来源过滤，避免混合搜索/切换来源时其他站点结果残留
+            val visibleProviderIds: Set<String>? = when (source) {
+                OnlineSubtitleSourceKind.THUNDER -> setOf(ThunderSubtitleProvider.ID)
+                OnlineSubtitleSourceKind.OPENSUBTITLES -> setOf(OpenSubtitlesProvider.ID)
+                else -> null
+            }
+            when (val state = onlineState) {
+                OnlineSearchUiState.Searching -> item {
+                    SubtitleSearchStatusRow(stringResource(R.string.searching) + "…")
+                }
+
+                is OnlineSearchUiState.Error -> item {
+                    InlineSubtitleErrorCard(
+                        title = stringResource(R.string.online_subtitle_search_failed),
+                        message = state.message,
+                        onRetry = { launchSearch { runOnlineSearch() } }
+                    )
+                }
+
+                OnlineSearchUiState.Empty -> item {
+                    InlineSubtitleEmptyCard(stringResource(R.string.subtitle_search_empty))
+                }
+
+                is OnlineSearchUiState.Success -> {
+                    val items = if (visibleProviderIds != null) {
+                        state.items.filter { it.providerId in visibleProviderIds }
+                    } else state.items
+                    if (items.isEmpty()) {
+                        item { InlineSubtitleEmptyCard(stringResource(R.string.subtitle_search_empty)) }
+                    } else itemsIndexed(items) { itemIndex, result ->
+                        OnlineProviderResultRow(
+                            result = result,
+                            isDownloading = downloadingOnlineId == result.id,
+                            onClick = { downloadOnline(result) },
+                            modifier = if (itemIndex == 0) {
+                                Modifier.focusRequester(firstResultFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
+                }
+
+                OnlineSearchUiState.Idle -> Unit
+            }
+        }
+    }
+
+    if (showLanguageDialog) {
+        LanguageSelectDialog(
+            languages = languageCodes,
+            labels = languageLabels,
+            selected = selectedLanguage,
+            onSelect = { code ->
+                showLanguageDialog = false
+                selectLanguage(code)
+            },
+            onDismiss = { showLanguageDialog = false }
+        )
+    }
+
+    if (showKeywordDialog) {
+        TvInputDialog(
+            title = stringResource(R.string.online_subtitle_edit_keyword),
+            initialValue = onlineKeyword,
+            onConfirm = { input ->
+                val trimmed = input.trim()
+                if (trimmed.isNotBlank()) {
+                    onlineKeyword = trimmed
+                    // 搜索按钮已移除，确认关键词即搜索（相同关键词也允许手动刷新）
+                    launchSearch { runOnlineSearch() }
+                }
+            },
+            onDismiss = { showKeywordDialog = false }
+        )
+    }
+
+    if (showOsKeyConfig) {
+        OpenSubtitlesKeyConfigDialog(
+            // 复用面板内嵌的配置服务（未配置场景），避免出现两个不同地址的二维码
+            sharedServer = osConfigServer,
+            sharedQr = osConfigQr,
+            sharedAddress = osConfigAddress,
+            onKeySaved = { key -> saveOsKey(key) },
+            onDismiss = { showOsKeyConfig = false }
+        )
+    }
+}
+
+/**
+ * OpenSubtitles API Key 大二维码弹窗：
+ * TV 显示二维码 → 手机扫码打开本机网页填写 → 保存后立即启用该字幕源。
+ *
+ * 传入 sharedServer 时直接复用（配置页场景，服务由面板管理）；
+ * 否则自建临时服务（“更改 Key”场景），关闭时随弹窗销毁。
+ */
+@Composable
+private fun OpenSubtitlesKeyConfigDialog(
+    onKeySaved: (String) -> Unit,
+    onDismiss: () -> Unit,
+    sharedServer: com.xxxx.emby_tv.LocalServer? = null,
+    sharedQr: androidx.compose.ui.graphics.ImageBitmap? = null,
+    sharedAddress: String = ""
+) {
+    val context = LocalContext.current
+    val prefs = remember { PreferencesManager(context) }
+    val themeColor = com.xxxx.emby_tv.ui.theme.ThemeColorManager
+        .getThemeColorById(context, prefs.themeId)
+
+    var qrCodeBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var serverAddress by remember { mutableStateOf("") }
+    var localServer by remember { mutableStateOf<com.xxxx.emby_tv.LocalServer?>(null) }
+    val useShared = sharedServer != null && sharedQr != null
+
+    if (!useShared) {
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                val server = com.xxxx.emby_tv.LocalServer.startApiKeyServer(
+                    themeColor.primaryDark,
+                    themeColor.secondaryLight
+                ) { key ->
+                    if (key.isNotBlank()) onKeySaved(key.trim())
+                }
+                localServer = server
+                if (server != null) {
+                    val ip = com.xxxx.emby_tv.QrCodeUtils.getLocalIpAddress()
+                    if (ip != null) {
+                        serverAddress = "http://$ip:${server.listeningPort}"
+                        com.xxxx.emby_tv.QrCodeUtils.generateQrCode(serverAddress, 400)
+                            ?.let { qrCodeBitmap = it.asImageBitmap() }
+                    }
+                }
+            }
+        }
+
+        DisposableEffect(Unit) {
+            onDispose { localServer?.stop() }
+        }
+    }
+
+    val displayQr = if (useShared) sharedQr else qrCodeBitmap
+    val displayAddress = if (useShared) sharedAddress else serverAddress
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            colors = SurfaceDefaults.colors(
+                containerColor = Color(0xFF202020).copy(alpha = 0.95f),
+                contentColor = Color.White
+            ),
+            modifier = Modifier.padding(40.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = stringResource(R.string.opensubtitles_api_key),
+                    style = TvMaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = stringResource(R.string.online_subtitle_opensubtitles_desc),
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                if (displayQr != null) {
+                    Image(
+                        bitmap = displayQr!!,
+                        contentDescription = stringResource(R.string.opensubtitles_scan_hint),
+                        modifier = Modifier
+                            .size(220.dp)
+                            .background(Color.White, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(60.dp),
+                        color = TvMaterialTheme.colorScheme.secondary
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.opensubtitles_scan_hint) +
+                            if (displayAddress.isNotBlank()) "\n$displayAddress" else "",
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    onClick = onDismiss,
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.1f),
+                        contentColor = Color.White,
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                    )
+                ) {
+                    Text(
+                        text = stringResource(R.string.close),
+                        style = TvMaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 字幕语言选择弹窗：TV 端用列表选择，替代原先的横向 chip 行。
+ * 语言改动频率低，聚焦到列表首项后方向键移动、确定键选中。
+ */
+@Composable
+private fun LanguageSelectDialog(
+    languages: List<String>,
+    labels: Map<String, String>,
+    selected: String?,
+    onSelect: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val firstItemFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { firstItemFocusRequester.requestFocus() }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            colors = SurfaceDefaults.colors(
+                containerColor = Color(0xFF202020).copy(alpha = 0.96f),
+                contentColor = Color.White
+            ),
+            modifier = Modifier
+                .padding(60.dp)
+                .widthIn(min = 420.dp, max = 600.dp)
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text(
+                    text = stringResource(R.string.subtitle_search_language),
+                    style = TvMaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 620.dp),
+                    // TV 聚焦默认放大 1.1x，用 contentPadding 留出绘制空间避免边缘裁切
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    itemsIndexed(languages) { index, code ->
+                        val isSelected = code == selected
+                        Surface(
+                            onClick = { onSelect(code) },
+                            shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (isSelected) {
+                                    TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                } else Color.Transparent,
+                                contentColor = Color.White,
+                                focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                                focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (index == 0) Modifier.focusRequester(firstItemFocusRequester)
+                                    else Modifier
+                                )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = labels[code] ?: code,
+                                    style = TvMaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 在线字幕搜索来源 */
+private enum class OnlineSubtitleSourceKind {
+    SERVER, ONLINE_ALL, THUNDER, OPENSUBTITLES
+}
+
+/** 在线字幕站（客户端直连）搜索状态 */
+private sealed interface OnlineSearchUiState {
+    object Idle : OnlineSearchUiState
+    object Searching : OnlineSearchUiState
+    data class Success(val items: List<OnlineSubtitleResult>) : OnlineSearchUiState
+    object Empty : OnlineSearchUiState
+    data class Error(val message: String) : OnlineSearchUiState
+}
+
+/** 来源切换 chip（服务器 / 迅雷 / OpenSubtitles / 全部在线源） */
+@Composable
+private fun OnlineSourceChip(
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onFocus: (() -> Unit)? = null,
+) {
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (isSelected) {
+                TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+            } else Color.Transparent,
+            contentColor = Color.White,
+            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+        ),
+        // TV 上聚焦即切换，不需要再按确定键
+        modifier = Modifier.onFocusChanged { if (it.isFocused) onFocus?.invoke() }
+    ) {
+        Text(
+            text = label,
+            style = TvMaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+    }
+}
+
+/** 服务器搜索失败/为空时的「切换到在线源」提示 */
+@Composable
+private fun SwitchToOnlineHint(onClick: () -> Unit) {
+    Spacer(modifier = Modifier.height(8.dp))
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+            contentColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(
+            text = stringResource(R.string.subtitle_source_switch_hint),
+            style = TvMaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+        )
+    }
+}
+
+/**
+ * 在线字幕站结果行：来源 · 语言 · 格式 · 精准匹配标记
+ */
+@Composable
+private fun OnlineProviderResultRow(
+    result: OnlineSubtitleResult,
+    isDownloading: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val thunderLabel = stringResource(R.string.subtitle_source_thunder)
+    val openSubsLabel = stringResource(R.string.subtitle_source_opensubtitles)
+    val providerLabel = when (result.providerId) {
+        ThunderSubtitleProvider.ID -> thunderLabel
+        OpenSubtitlesProvider.ID -> openSubsLabel
+        else -> result.providerId
+    }
+    val meta = buildList {
+        add(providerLabel)
+        result.language?.takeIf { it.isNotBlank() }?.let { add(it) }
+        add(result.format.uppercase(Locale.US))
+        result.rating?.takeIf { it > 0f }?.let { add(String.format(Locale.US, "★ %.1f", it)) }
+        result.downloadCount?.takeIf { it > 0 }?.let { add(String.format(Locale.US, "↓ %d", it)) }
+    }.joinToString(" · ")
+
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            contentColor = TvMaterialTheme.colorScheme.onSurface,
+            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = result.name,
+                        style = TvMaterialTheme.typography.bodyLarge,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (result.isHashMatch) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = TvMaterialTheme.colorScheme.secondary.copy(alpha = 0.35f)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.online_subtitle_hash_match),
+                                style = TvMaterialTheme.typography.labelSmall,
+                                color = TvMaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(
+                        text = meta,
+                        style = TvMaterialTheme.typography.bodySmall,
+                        color = LocalContentColor.current.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            if (isDownloading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = LocalContentColor.current
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Download,
+                    contentDescription = stringResource(R.string.online_subtitle_download_and_apply),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 解析当前媒体源的文件名（在线字幕搜索的默认关键词）。
+ *
+ * 第三方数据源的元数据常与真实文件不一致，优先取文件路径里的真实文件名；
+ * 没有路径时退回带扩展名且无空格的版本名（如 "xxx.mkv"）。
+ */
+private fun resolveSearchFilename(
+    mediaSources: List<MediaSourceInfoDto>,
+    currentMediaSourceId: String?,
+): String? {
+    val source = mediaSources.firstOrNull { it.id == currentMediaSourceId }
+        ?: mediaSources.firstOrNull()
+        ?: return null
+    val path = source.path
+        ?.takeIf { it.isNotBlank() }
+        ?.substringAfterLast('/')
+        ?.substringAfterLast('\\')
+    if (!path.isNullOrBlank() && path.contains('.')) return path
+    val name = source.name?.takeIf { it.isNotBlank() }
+    if (name != null && name.contains('.') && !name.contains(' ')) return name
+    return null
+}
+
+/** 兜底搜索标题：剧集「剧名 S1E2」/ 电影片名 */
+private fun buildSearchTitle(mediaInfo: BaseItemDto): String? {
+    val season = mediaInfo.parentIndexNumber
+    val episode = mediaInfo.indexNumber
+    return if (season != null && episode != null) {
+        "${mediaInfo.seriesName ?: mediaInfo.name ?: ""} S$season E$episode".trim()
+    } else {
+        mediaInfo.seriesName ?: mediaInfo.name
     }
 }
 
@@ -1288,7 +2297,7 @@ private fun SubtitleSearchStatusRow(text: String) {
 private fun InlineSubtitleErrorCard(
     title: String,
     message: String,
-    onRetry: (() -> Unit)? = null
+    onRetry: (() -> Unit)? = null,
 ) {
     Surface(
         shape = RoundedCornerShape(8.dp),
@@ -1367,7 +2376,7 @@ private fun OnlineSubtitleResultRow(
     isDownloading: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val supported = isSupportedRemoteSubtitleFormat(info.format)
     val meta = buildList {
@@ -1460,7 +2469,7 @@ private suspend fun resolveNewSubtitleIndex(
     itemId: String,
     mediaSourceId: String?,
     existingTracks: List<MediaStreamDto>,
-    info: RemoteSubtitleInfoDto
+    info: RemoteSubtitleInfoDto,
 ): Int? {
     return try {
         val streams = repository.getItemSubtitleStreams(itemId, mediaSourceId)
@@ -1514,7 +2523,7 @@ private sealed interface SubtitleSearchUiState {
     data class Empty(val language: String) : SubtitleSearchUiState
     data class Error(
         val kind: SubtitleSearchErrorKind,
-        val message: String
+        val message: String,
     ) : SubtitleSearchUiState
 }
 
@@ -1529,7 +2538,7 @@ private fun isSupportedRemoteSubtitleFormat(format: String?): Boolean {
 
 private fun subtitleSearchErrorState(
     e: Exception,
-    context: android.content.Context
+    context: android.content.Context,
 ): SubtitleSearchUiState.Error {
     val message = e.message.orEmpty()
     return when {
@@ -1537,14 +2546,17 @@ private fun subtitleSearchErrorState(
             SubtitleSearchErrorKind.LoginExpired,
             context.getString(R.string.subtitle_search_login_expired)
         )
+
         message.contains("HTTP Error: 403") -> SubtitleSearchUiState.Error(
             SubtitleSearchErrorKind.Permission,
             context.getString(R.string.subtitle_search_no_permission)
         )
+
         message.contains("HTTP Error: 404") -> SubtitleSearchUiState.Error(
             SubtitleSearchErrorKind.NotFound,
             context.getString(R.string.subtitle_search_not_found)
         )
+
         else -> SubtitleSearchUiState.Error(
             SubtitleSearchErrorKind.Network,
             message.ifBlank { context.getString(R.string.subtitle_search_failed) }
@@ -1554,18 +2566,22 @@ private fun subtitleSearchErrorState(
 
 private fun subtitleDownloadErrorMessage(
     e: Exception,
-    context: android.content.Context
+    context: android.content.Context,
 ): String {
     val message = e.message.orEmpty()
     return when {
         message.contains("HTTP Error: 401") ->
             context.getString(R.string.subtitle_search_login_expired)
+
         message.contains("HTTP Error: 403") ->
             context.getString(R.string.subtitle_download_no_permission)
+
         message.contains("HTTP Error: 404") ->
             context.getString(R.string.subtitle_search_not_found)
+
         message.contains("HTTP Error: 500") ->
             context.getString(R.string.subtitle_download_server_error)
+
         else -> message.ifBlank { context.getString(R.string.subtitle_download_failed) }
     }
 }
@@ -1767,7 +2783,7 @@ fun IntroSkipTab(
     autoSkipIntro: Boolean,
     onAutoSkipIntroChange: (Boolean) -> Unit,
     mediaInfo: BaseItemDto,
-    repository: EmbyRepository
+    repository: EmbyRepository,
 ) {
     val isSeries = mediaInfo.type == "Episode" || mediaInfo.seriesId != null
 
@@ -1840,15 +2856,19 @@ fun IntroSkipTab(
                 MarkerLoadStatus.Loading -> item {
                     MarkerStatusText(stringResource(R.string.intro_marker_loading))
                 }
+
                 MarkerLoadStatus.Denied -> item {
                     MarkerStatusText(stringResource(R.string.intro_marker_need_admin))
                 }
+
                 MarkerLoadStatus.Failed -> item {
                     MarkerStatusText(stringResource(R.string.intro_marker_load_failed))
                 }
+
                 MarkerLoadStatus.NoLibraries -> item {
                     MarkerStatusText(stringResource(R.string.intro_marker_no_libraries))
                 }
+
                 MarkerLoadStatus.Loaded -> item {
                     IntroMarkerSection(
                         libraries = markerLibraries,
@@ -1874,7 +2894,7 @@ fun IntroSkipTab(
 private fun MarkerOptionRow(
     label: String,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Surface(
         onClick = onClick,
@@ -1943,7 +2963,7 @@ private fun buildSourceDetail(source: MediaSourceInfoDto): String {
 fun VersionTab(
     sources: List<MediaSourceInfoDto>,
     currentSourceId: String?,
-    onSelect: (MediaSourceInfoDto) -> Unit
+    onSelect: (MediaSourceInfoDto) -> Unit,
 ) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
         items(sources) { source ->
@@ -2016,7 +3036,7 @@ fun ExternalPlayerTab(
     currentMediaSourceId: String?,
     serverUrl: String,
     repository: EmbyRepository,
-    onLaunchExternalPlayer: (String?) -> Unit
+    onLaunchExternalPlayer: (String?) -> Unit,
 ) {
     val context = LocalContext.current
 

@@ -50,7 +50,7 @@
     <string name="subtitle_position_hint">文本字幕均会移动到设定位置；图形字幕（PGS）保持原位</string>
     <!-- 在线字幕搜索 -->
     <string name="search_online_subtitles">搜索在线字幕</string>
-    <string name="search_online_subtitles_hint">从 Emby 服务器在线搜索字幕，下载后立即应用</string>
+    <string name="search_online_subtitles_hint">从 Emby 服务器或客户端在线搜索字幕，下载后立即应用</string>
     <string name="subtitle_search_language">字幕语言</string>
     <string name="subtitle_language_zh_cn">简体中文</string>
     <string name="subtitle_language_zh_tw">繁体中文</string>
@@ -79,8 +79,27 @@
     <string name="subtitle_download_applied">字幕已下载并应用</string>
     <string name="subtitle_format_unsupported">内置播放器无法显示该字幕格式</string>
     <string name="retry">重试</string>
+    <!-- 客户端在线字幕搜索（直连字幕站，不依赖服务器插件） -->
+    <string name="subtitle_source_server">服务器</string>
+    <string name="subtitle_source_thunder">迅雷</string>
+    <string name="subtitle_source_opensubtitles">OpenSubtitles</string>
+    <string name="subtitle_source_online_all">全部在线源</string>
+    <string name="subtitle_source_switch_hint">服务器无法搜索字幕？试试在线字幕源，无需服务器插件。</string>
+    <string name="online_subtitle_search_keyword">搜索关键词</string>
+    <string name="online_subtitle_edit_keyword">修改搜索词</string>
+    <string name="online_subtitle_hash_match">精准匹配</string>
+    <string name="online_subtitle_no_provider">未启用任何在线字幕源，请在设置中开启。</string>
+    <string name="online_subtitle_search_failed">在线字幕搜索失败</string>
+    <string name="opensubtitles_key_missing">未配置 OpenSubtitles API Key，请到设置中填写。</string>
+    <string name="opensubtitles_key_invalid">OpenSubtitles API Key 无效或已过期。</string>
+    <string name="subtitle_thunder_language_hint">迅雷源仅按文件名搜索（以中文字幕为主），不随语言筛选；OpenSubtitles 的结果会按语言刷新。</string>
+    <string name="online_subtitle_enlarge_qr">放大二维码</string>
+    <string name="opensubtitles_change_key">更改 OpenSubtitles API Key</string>
+    <string name="online_subtitle_download_and_apply">下载并应用</string>
+    <string name="online_subtitle_cached">已下载</string>
     <string name="audio">音频</string>
     <string name="disable_subtitles">关闭字幕</string>
+    <string name="subtitle_local_track_label">本地 · %1$s</string>
     <string name="no_episodes_found">未找到分集</string>
     <string name="list_loop">列表循环</string>
     <string name="single_loop">单集循环</string>
@@ -297,6 +316,21 @@
     <string name="back_exit_double">按两次返回退出APP</string>
     <string name="back_exit_double_desc">开启后，在登录页或首页按一次返回键会提示"再按一次退出APP"，2秒内再按一次才会退出。</string>
     <string name="press_back_again_to_exit">再按一次退出APP</string>
+
+    <!-- 在线字幕设置 -->
+    <string name="online_subtitle_settings">在线字幕</string>
+    <string name="online_subtitle_settings_desc">播放中由客户端直连字幕站搜索下载字幕，服务器没有字幕插件（如第三方数据源）时也可用。</string>
+    <string name="online_subtitle_thunder">迅雷字幕</string>
+    <string name="online_subtitle_thunder_desc">按文件名搜索，无需密钥，中文字幕覆盖最好</string>
+    <string name="online_subtitle_opensubtitles">OpenSubtitles 字幕</string>
+    <string name="online_subtitle_opensubtitles_desc">多语言字幕，需要免费注册的 API Key</string>
+    <string name="opensubtitles_api_key">OpenSubtitles API Key</string>
+    <string name="opensubtitles_key_saved">API Key 已保存</string>
+    <string name="opensubtitles_key_cleared">API Key 已清除</string>
+    <string name="opensubtitles_scan_hint">扫码填写 API Key</string>
+    <string name="opensubtitles_key_configured">已配置</string>
+    <string name="opensubtitles_key_not_configured">未配置</string>
+    <string name="clear_key">清除</string>
 
     <string name="sort">排序</string>
     <string name="sort_name">名称</string>

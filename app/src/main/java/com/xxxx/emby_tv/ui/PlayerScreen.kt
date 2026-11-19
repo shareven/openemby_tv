@@ -62,6 +62,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -96,6 +97,7 @@ import com.xxxx.emby_tv.ui.player.PlayerTrackManager
 import com.xxxx.emby_tv.ui.player.SubtitleConfigBuilder
 import com.xxxx.emby_tv.ui.player.SubtitleOffsetController
 import com.xxxx.emby_tv.ui.viewmodel.PlayerViewModel
+import com.xxxx.emby_tv.data.repository.OnlineSubtitleRepository
 import com.xxxx.emby_tv.util.ErrorHandler
 import com.xxxx.emby_tv.util.ExternalPlayerHelper
 import com.xxxx.emby_tv.util.IntroSkipHelper
@@ -109,6 +111,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 /**
  * 播放器界面（Screen）- 使用 PlayerViewModel
@@ -232,6 +235,9 @@ fun PlayerScreen(
     val repository = remember { EmbyRepository.getInstance(context) }
     val serverUrl = repository.serverUrl ?: ""
     val apiKey = repository.apiKey ?: ""
+
+    // 客户端在线字幕仓库（直连字幕站，不依赖 Emby 服务器插件）
+    val onlineSubtitleRepository = remember { OnlineSubtitleRepository.getInstance(context) }
 
     // 使用 rememberCoroutineScope() 替代 GlobalScope，确保协程可取消
     val scope = rememberCoroutineScope()
@@ -539,7 +545,9 @@ fun PlayerScreen(
     val okHttpClient = HttpClient.getClient(context)
 
 // 创建支持 OkHttp 的工厂
-    val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+    // 外层必须包 DefaultDataSource：本地字幕外挂是 file:// Uri，
+    // OkHttpDataSource 只支持 http(s)，直连会导致外挂轨加载失败（字幕不显示）
+    val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
         .setUserAgent(EmbyApi.CLIENT + "/" + CLIENT_VERSION)
         .setDefaultRequestProperties(
             mapOf(
@@ -548,6 +556,9 @@ fun PlayerScreen(
                 "X-Emby-Device-Name" to EmbyApi.DEVICE_NAME,
             )
         )
+
+    // DefaultDataSource 按 scheme 分发：file:// → FileDataSource，http(s):// → OkHttp
+    val dataSourceFactory = DefaultDataSource.Factory(context, okHttpDataSourceFactory)
 
     val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
@@ -997,12 +1008,54 @@ fun PlayerScreen(
         }
     }
 
+    /**
+     * 按媒体记住当前字幕选择。用稳定标识存储，避免依赖 9000+ 的运行时合成 index：
+     * 本地下载字幕存文件名，服务器字幕存 index，关闭字幕存 "off"。
+     */
+    fun saveSubtitleSelection(index: Int) {
+        val selection = when {
+            index == -1 -> "off"
+            index < 0 -> return // -99：尚未初始化，不保存
+            else -> {
+                val track = subtitleTracks.firstOrNull { it.index == index }
+                when {
+                    track?.localSubtitlePath != null ->
+                        "local:" + File(track.localSubtitlePath!!).name
+                    track != null -> "server:$index"
+                    else -> return // 找不到对应轨道，不保存
+                }
+            }
+        }
+        preferencesManager.setSubtitleSelection(mediaId, selection)
+    }
+
+    /** 加载播放信息并挂载缓存字幕后，按本地记忆恢复字幕 index；无记忆或匹配失败时用回退值 */
+    fun restoreSubtitleIndex(fallback: Int): Int {
+        val remembered = preferencesManager.getSubtitleSelection(mediaId)
+        if (remembered.isBlank()) return fallback
+        return when {
+            remembered == "off" -> -1
+            remembered.startsWith("local:") -> {
+                val fileName = remembered.removePrefix("local:")
+                subtitleTracks.firstOrNull { track ->
+                    track.localSubtitlePath?.let { File(it).name == fileName } == true
+                }?.index ?: fallback
+            }
+            remembered.startsWith("server:") -> {
+                val idx = remembered.removePrefix("server:").toIntOrNull()
+                if (idx != null && subtitleTracks.any { it.index == idx }) idx else fallback
+            }
+            else -> fallback
+        }
+    }
+
     // 提供一个函数供 UI 调用切换（例如点击列表时调用）
     fun changeTrack(audioIndex: Int, subIndex: Int) {
         val needChange =
             (selectedAudioIndex != audioIndex && audioIndex > -1) || (selectedSubtitleIndex != subIndex && subIndex > -1)
         selectedAudioIndex = audioIndex
         selectedSubtitleIndex = subIndex
+        saveSubtitleSelection(subIndex)
         hasTriedTranscodeFallback = false
         if (needChange && !(media.mediaSources?.firstOrNull()?.supportsDirectPlay
                 ?: false)
@@ -1032,9 +1085,44 @@ fun PlayerScreen(
         )
         subtitleTracks = subtitleTracks.filterNot { it.index == index } + syntheticTrack
         selectedSubtitleIndex = index
+        saveSubtitleSelection(index)
         hasTriedTranscodeFallback = false
         val resumePosition = player.currentPosition.coerceAtLeast(0L)
         pendingSubtitleApplyPosition = resumePosition
+        subtitleConfigVersion++
+        Toast.makeText(
+            context,
+            context.getString(R.string.subtitle_download_applied),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    /**
+     * 客户端在线字幕下载成功后：构造本地外挂轨、选中并重建 MediaItem。
+     *
+     * 字幕文件已保存在应用私有目录，由 SubtitleConfigBuilder 以
+     * file:// Uri 的 SubtitleConfiguration 交给 media3 加载，
+     * 不经过 Emby 服务器（第三方数据源也可用）。
+     */
+    fun applyLocalSubtitle(saved: OnlineSubtitleRepository.SavedLocalSubtitle, displayName: String) {
+        val newIndex = ((subtitleTracks.mapNotNull { it.index }.maxOrNull() ?: -1) + 1)
+            .coerceAtLeast(OnlineSubtitleRepository.LOCAL_TRACK_INDEX_BASE)
+        saved.index = newIndex
+        val syntheticTrack = MediaStreamDto(
+            codec = saved.format,
+            displayTitle = displayName,
+            type = "Subtitle",
+            index = newIndex,
+            isExternal = true,
+            supportsExternalStream = true,
+            isTextSubtitleStream = true,
+            localSubtitlePath = saved.file.absolutePath
+        )
+        subtitleTracks = subtitleTracks.filterNot { it.index == newIndex } + syntheticTrack
+        selectedSubtitleIndex = newIndex
+        saveSubtitleSelection(newIndex)
+        hasTriedTranscodeFallback = false
+        pendingSubtitleApplyPosition = player.currentPosition.coerceAtLeast(0L)
         subtitleConfigVersion++
         Toast.makeText(
             context,
@@ -1144,6 +1232,25 @@ fun PlayerScreen(
                 s.type == "Subtitle"
             }
 
+            // 挂载已下载的客户端在线字幕（保存在应用私有目录，重启播放后仍在）
+            val cachedSubs = withContext(Dispatchers.IO) {
+                onlineSubtitleRepository.listCachedSubtitles(mediaId)
+            }
+            if (cachedSubs.isNotEmpty()) {
+                subtitleTracks = subtitleTracks + cachedSubs.map { cached ->
+                    MediaStreamDto(
+                        codec = cached.format,
+                        displayTitle = cached.fileName.substringBeforeLast('.'),
+                        type = "Subtitle",
+                        index = cached.index,
+                        isExternal = true,
+                        supportsExternalStream = true,
+                        isTextSubtitleStream = true,
+                        localSubtitlePath = cached.file.absolutePath
+                    )
+                }
+            }
+
             audioTracks = streams.filter { s ->
                 s.type == "Audio"
             }
@@ -1152,7 +1259,8 @@ fun PlayerScreen(
                 selectedAudioIndex = source?.defaultAudioStreamIndex ?: -1
             }
             if (selectedSubtitleIndex == -99) {
-                selectedSubtitleIndex = source?.defaultSubtitleStreamIndex ?: -1
+                // 优先从本地记忆恢复上次字幕选择（含客户端下载字幕），无记忆才用服务器默认
+                selectedSubtitleIndex = restoreSubtitleIndex(source?.defaultSubtitleStreamIndex ?: -1)
             }
 
             // 构建 URL (参考 Flutter 逻辑)
@@ -2007,6 +2115,10 @@ fun PlayerScreen(
                     selectedAudioIndex = selectedAudioIndex,
                     onAudioSelect = { index -> changeTrack(index, selectedSubtitleIndex) },
                     onSubtitleDownloaded = { index, info -> applyDownloadedSubtitle(index, info) },
+                    streamUrl = videoUrl,
+                    onLocalSubtitleDownloaded = { saved, displayName ->
+                        applyLocalSubtitle(saved, displayName)
+                    },
                     playbackCorrection = playbackCorrection,
                     onPlaybackCorrectionChange = {
                         // 只对当前播放视频生效，不持久化保存

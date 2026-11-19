@@ -110,6 +110,42 @@ class PreferencesManager(context: Context) {
         get() = prefs.getFloat(KEY_SUBTITLE_BOTTOM_PADDING, DEFAULT_SUBTITLE_BOTTOM_PADDING)
         set(value) = prefs.edit().putFloat(KEY_SUBTITLE_BOTTOM_PADDING, value).apply()
 
+    // === 在线字幕（客户端直连字幕站，不走 Emby 服务器） ===
+
+    // 迅雷字幕源：无需 Key，默认启用
+    var thunderSubtitleEnabled: Boolean
+        get() = prefs.getBoolean(KEY_THUNDER_SUBTITLE_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_THUNDER_SUBTITLE_ENABLED, value).apply()
+
+    // OpenSubtitles：需配置 API Key 后才有意义，默认关闭
+    var openSubtitlesEnabled: Boolean
+        get() = prefs.getBoolean(KEY_OPENSUBTITLES_ENABLED, false)
+        set(value) = prefs.edit().putBoolean(KEY_OPENSUBTITLES_ENABLED, value).apply()
+
+    var openSubtitlesApiKey: String
+        get() = prefs.getString(KEY_OPENSUBTITLES_API_KEY, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENSUBTITLES_API_KEY, value).apply()
+
+    // 字幕搜索语言：记住用户上次选择，空串表示未选过（首次进入自动解析默认语言）
+    var subtitleSearchLanguage: String
+        get() = prefs.getString(KEY_SUBTITLE_SEARCH_LANGUAGE, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SUBTITLE_SEARCH_LANGUAGE, value).apply()
+
+    /**
+     * 按视频记住上次选择的字幕（本地持久化，不依赖上报给 Emby 的轨道 index）。
+     * 值编码：
+     *   ""                  未选过（使用服务器默认）
+     *   "off"               用户主动关闭字幕
+     *   "server:<index>"    Emby 服务器字幕轨（index 稳定）
+     *   "local:<fileName>"  客户端下载的字幕（文件名稳定，9000+ 运行时 index 不稳定）
+     */
+    fun getSubtitleSelection(mediaId: String): String =
+        prefs.getString(KEY_SUBTITLE_SELECTION_PREFIX + mediaId, "") ?: ""
+
+    fun setSubtitleSelection(mediaId: String, selection: String) {
+        prefs.edit().putString(KEY_SUBTITLE_SELECTION_PREFIX + mediaId, selection).apply()
+    }
+
     // === 缓冲设置 ===
 
     var minBufferMs: Int
@@ -220,6 +256,14 @@ class PreferencesManager(context: Context) {
         private const val KEY_DOUBLE_BACK_TO_EXIT = "double_back_to_exit"
         private const val KEY_PLAYBACK_SPEED = "playback_speed"
         private const val KEY_SUBTITLE_BOTTOM_PADDING = "subtitle_bottom_padding"
+
+        private const val KEY_THUNDER_SUBTITLE_ENABLED = "thunder_subtitle_enabled"
+        private const val KEY_OPENSUBTITLES_ENABLED = "opensubtitles_enabled"
+        private const val KEY_OPENSUBTITLES_API_KEY = "opensubtitles_api_key"
+
+        private const val KEY_SUBTITLE_SEARCH_LANGUAGE = "subtitle_search_language"
+
+        private const val KEY_SUBTITLE_SELECTION_PREFIX = "subtitle_selection_"
 
         private const val KEY_PROXY_ENABLED = "proxy_enabled"
         private const val KEY_PROXY_TYPE = "proxy_type"

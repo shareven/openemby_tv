@@ -38,6 +38,7 @@
     <string name="audio_label">Audio</string>
     <string name="playback">Playback</string>
     <string name="disable_subtitles">Disable subtitles</string>
+    <string name="subtitle_local_track_label">Local · %1$s</string>
     <string name="no_episodes_found">No episodes found</string>
     <string name="list_loop">List loop</string>
     <string name="single_loop">Single loop</string>
@@ -108,7 +109,7 @@
     <string name="subtitle_position_hint">All text subtitles move to the set position; bitmap subtitles (PGS) stay in place</string>
     <!-- Online subtitle search -->
     <string name="search_online_subtitles">Search Online Subtitles</string>
-    <string name="search_online_subtitles_hint">Search subtitles from your Emby server and apply instantly</string>
+    <string name="search_online_subtitles_hint">Search subtitles from your Emby server or client and apply instantly</string>
     <string name="subtitle_search_language">Subtitle Language</string>
     <string name="subtitle_language_zh_cn">Simplified Chinese</string>
     <string name="subtitle_language_zh_tw">Traditional Chinese</string>
@@ -137,6 +138,24 @@
     <string name="subtitle_download_applied">Subtitle downloaded and applied</string>
     <string name="subtitle_format_unsupported">This subtitle format cannot be displayed by the built-in player</string>
     <string name="retry">Retry</string>
+    <!-- Client online subtitle search (direct to subtitle sites, no server plugin) -->
+    <string name="subtitle_source_server">Server</string>
+    <string name="subtitle_source_thunder">Thunder</string>
+    <string name="subtitle_source_opensubtitles">OpenSubtitles</string>
+    <string name="subtitle_source_online_all">Online: All</string>
+    <string name="subtitle_source_switch_hint">Server cannot search subtitles? Try online sources — no server plugin required.</string>
+    <string name="online_subtitle_search_keyword">Search keyword</string>
+    <string name="online_subtitle_edit_keyword">Edit keyword</string>
+    <string name="online_subtitle_hash_match">Exact file match</string>
+    <string name="online_subtitle_no_provider">No online subtitle source is enabled. Enable one in Settings.</string>
+    <string name="online_subtitle_search_failed">Online subtitle search failed</string>
+    <string name="opensubtitles_key_missing">OpenSubtitles API key is not configured. Set it in Settings.</string>
+    <string name="opensubtitles_key_invalid">OpenSubtitles API key is invalid or expired.</string>
+    <string name="subtitle_thunder_language_hint">Thunder source searches by file name only (mostly Chinese subtitles) and is not filtered by language; results refresh by language for OpenSubtitles.</string>
+    <string name="online_subtitle_enlarge_qr">Enlarge QR code</string>
+    <string name="opensubtitles_change_key">Change OpenSubtitles API key</string>
+    <string name="online_subtitle_download_and_apply">Download and apply</string>
+    <string name="online_subtitle_cached">Downloaded</string>
     <string name="audio">Audio</string>
     <string name="playback_correction">Playback Correction</string>
     <string name="input_label">Input</string>
@@ -297,6 +316,21 @@
     <string name="back_exit_double">Press back twice to exit</string>
     <string name="back_exit_double_desc">On the login or home page, pressing back once shows a hint "Press back again to exit". Only pressing back again within 2 seconds will exit the app.</string>
     <string name="press_back_again_to_exit">Press back again to exit</string>
+
+    <!-- Online Subtitle Settings -->
+    <string name="online_subtitle_settings">Online Subtitles</string>
+    <string name="online_subtitle_settings_desc">Search and download subtitles directly from subtitle sites during playback. Works with servers that have no subtitle plugins (e.g. third-party media sources).</string>
+    <string name="online_subtitle_thunder">Thunder subtitles</string>
+    <string name="online_subtitle_thunder_desc">Search by file name, no key required, best coverage for Chinese subtitles</string>
+    <string name="online_subtitle_opensubtitles">OpenSubtitles</string>
+    <string name="online_subtitle_opensubtitles_desc">Multi-language subtitles. Requires a free API key</string>
+    <string name="opensubtitles_api_key">OpenSubtitles API Key</string>
+    <string name="opensubtitles_key_saved">API key saved</string>
+    <string name="opensubtitles_key_cleared">API key cleared</string>
+    <string name="opensubtitles_scan_hint">Scan to enter API key</string>
+    <string name="opensubtitles_key_configured">API key configured</string>
+    <string name="opensubtitles_key_not_configured">Not configured</string>
+    <string name="clear_key">Clear</string>
 
     <string name="sort">Sort</string>
     <string name="sort_name">Name</string>
