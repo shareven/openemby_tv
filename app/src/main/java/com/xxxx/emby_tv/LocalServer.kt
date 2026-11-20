@@ -13,8 +13,11 @@ class LocalServer private constructor(
     private val mode: Mode,
     private val onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
     private val onSearchReceived: ((String) -> Unit)? = null,
+    // SEARCH 模式：提供电视端当前关键词（网页预填用）
+    private val currentQueryProvider: (() -> String)? = null,
     private val onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
-    private val onApiKeyReceived: ((String) -> Unit)? = null,
+    // OpenSubtitles 凭据回传：(apiKey, username, password)，账号密码可为空
+    private val onOsCredentialsReceived: ((String, String, String) -> Unit)? = null,
     private val serversProvider: (() -> List<DiscoveredServer>)? = null,
     // 服务器Id -> 唯一用户名（发现的服务器只有一个用户时提供，用于网页自动填入）
     private val serverUserHintsProvider: (() -> Map<String, String>)? = null
@@ -47,10 +50,16 @@ class LocalServer private constructor(
         fun startSearchServer(
             themePrimaryDark: Color,
             themeSecondaryLight: Color,
+            // 提供电视端当前关键词，网页加载时拉取并预填到输入框（在原词基础上修改）
+            currentQueryProvider: (() -> String)? = null,
             onSearchReceived: (String) -> Unit
         ): LocalServer? {
             updateThemeColors(themePrimaryDark, themeSecondaryLight)
-            return startInternal(Mode.SEARCH, onSearchReceived = onSearchReceived)
+            return startInternal(
+                Mode.SEARCH,
+                onSearchReceived = onSearchReceived,
+                currentQueryProvider = currentQueryProvider
+            )
         }
 
         fun startProxyServer(
@@ -65,10 +74,10 @@ class LocalServer private constructor(
         fun startApiKeyServer(
             themePrimaryDark: Color,
             themeSecondaryLight: Color,
-            onApiKeyReceived: (String) -> Unit
+            onCredentialsReceived: (apiKey: String, username: String, password: String) -> Unit
         ): LocalServer? {
             updateThemeColors(themePrimaryDark, themeSecondaryLight)
-            return startInternal(Mode.APIKEY, onApiKeyReceived = onApiKeyReceived)
+            return startInternal(Mode.APIKEY, onOsCredentialsReceived = onCredentialsReceived)
         }
 
         private fun updateThemeColors(primary: Color, secondary: Color) {
@@ -92,8 +101,9 @@ class LocalServer private constructor(
             mode: Mode,
             onLoginConfigReceived: ((String, String, String, String, String) -> Unit)? = null,
             onSearchReceived: ((String) -> Unit)? = null,
+            currentQueryProvider: (() -> String)? = null,
             onProxyConfigReceived: ((Boolean, String, String, Int, String, String) -> Unit)? = null,
-            onApiKeyReceived: ((String) -> Unit)? = null,
+            onOsCredentialsReceived: ((String, String, String) -> Unit)? = null,
             serversProvider: (() -> List<DiscoveredServer>)? = null,
             serverUserHintsProvider: (() -> Map<String, String>)? = null
         ): LocalServer? {
@@ -102,8 +112,9 @@ class LocalServer private constructor(
                 try {
                     val server = LocalServer(
                         port, mode,
-                        onLoginConfigReceived, onSearchReceived, onProxyConfigReceived,
-                        onApiKeyReceived, serversProvider, serverUserHintsProvider
+                        onLoginConfigReceived, onSearchReceived, currentQueryProvider,
+                        onProxyConfigReceived,
+                        onOsCredentialsReceived, serversProvider, serverUserHintsProvider
                     )
                     server.start(NanoHTTPD.SOCKET_READ_TIMEOUT, false)
                     return server
@@ -125,6 +136,14 @@ class LocalServer private constructor(
     }
 
     private fun serveSearch(session: IHTTPSession): Response {
+        // 网页加载时拉取电视端当前关键词，预填到输入框（在原词基础上修改）
+        if (session.method == Method.GET && session.uri.endsWith("/current")) {
+            val query = currentQueryProvider?.invoke() ?: ""
+            val json = "{\"query\":\"" +
+                query.replace("\\", "\\\\").replace("\"", "\\\"") +
+                "\"}"
+            return newFixedLengthResponse(Response.Status.OK, "application/json", json)
+        }
         if (session.method == Method.POST) {
             try {
                 val files = HashMap<String, String>()
@@ -205,6 +224,11 @@ class LocalServer private constructor(
                         document.getElementById('input-query').placeholder = '输入搜索关键词...';
                         document.getElementById('btn-submit').innerText = '在电视上搜索';
                     }
+                    // 预填电视端当前关键词并全选，方便在原词基础上修改
+                    fetch('current').then(function(r) { return r.json(); }).then(function(d) {
+                        var el = document.getElementById('input-query');
+                        if (d && d.query) { el.value = d.query; el.focus(); el.select(); }
+                    }).catch(function(e) {});
                 </script>
             </body>
             </html>
@@ -687,10 +711,17 @@ class LocalServer private constructor(
                 session.parseBody(files)
                 val params = session.parameters
                 val apiKey = params["apikey"]?.firstOrNull() ?: ""
+                val username = params["username"]?.firstOrNull() ?: ""
+                val password = params["password"]?.firstOrNull() ?: ""
 
                 if (apiKey.isNotEmpty()) {
-                    onApiKeyReceived?.invoke(apiKey.trim())
-                    return serveSuccessPage("Key Sent!", "The API key has been sent to your TV.", "密钥已发送！", "API Key 已发送到电视。")
+                    onOsCredentialsReceived?.invoke(apiKey.trim(), username.trim(), password)
+                    return serveSuccessPage(
+                        "Configuration Sent!",
+                        "The API key and account have been sent to your TV.",
+                        "配置已发送！",
+                        "API Key 与账号信息已发送到电视。"
+                    )
                 }
             } catch (e: Exception) {
                 ErrorHandler.logError("LocalServer", "Error processing api key", e)
@@ -702,7 +733,7 @@ class LocalServer private constructor(
             <!DOCTYPE html>
             <html>
             <head>
-                <title>OpenSubtitles API Key</title>
+                <title>OpenSubtitles</title>
                 <meta name="viewport" content="width=device-width, initial-scale=1">
                 <meta charset="UTF-8">
                 <style>
@@ -712,21 +743,30 @@ class LocalServer private constructor(
                         padding: 0; margin: 0;
                         background: linear-gradient(135deg, var(--theme-primary), var(--theme-secondary));
                         color: white;
-                        display: flex; justify-content: center; align-items: center;
+                        display: flex; justify-content: center;
                         min-height: 100vh;
                     }
                     .container {
                         background: rgba(0, 0, 0, 0.2);
-                        padding: 40px; border-radius: 16px;
+                        padding: 32px; border-radius: 16px;
                         backdrop-filter: blur(10px);
                         box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
-                        width: 90%; max-width: 400px;
+                        width: 90%; max-width: 420px;
                         border: 1px solid rgba(255, 255, 255, 0.1);
+                        /* 垂直 auto 边距：内容超出屏高时可正常滚动，不裁顶 */
+                        margin: 24px auto;
                     }
-                    h2 { text-align: center; margin-bottom: 10px; font-weight: 300; }
-                    .tip { text-align: center; color: #ddd; font-size: 13px; margin-bottom: 24px; line-height: 1.6; }
+                    h2 { text-align: center; margin-bottom: 16px; font-weight: 300; }
+                    .steps {
+                        background: rgba(0, 0, 0, 0.25); border-radius: 10px;
+                        padding: 12px 16px; margin-bottom: 22px;
+                        font-size: 13px; color: #eee; text-align: left; line-height: 1.8;
+                    }
+                    .steps-title { margin: 0 0 4px; font-weight: bold; }
+                    .steps ol { margin: 0; padding-left: 20px; }
+                    .steps a, a.link { color: #fff; font-weight: bold; text-decoration: underline; }
                     input {
-                        width: 100%; padding: 14px; margin-bottom: 20px;
+                        width: 100%; padding: 14px; margin-bottom: 16px;
                         box-sizing: border-box;
                         background: rgba(0, 0, 0, 0.3);
                         border: 1px solid rgba(255, 255, 255, 0.2);
@@ -740,28 +780,43 @@ class LocalServer private constructor(
                         border: none; border-radius: 8px;
                         font-size: 16px; font-weight: bold; cursor: pointer;
                     }
-                    a { color: white; }
+                    .privacy {
+                        font-size: 12px; color: rgba(255, 255, 255, 0.75);
+                        text-align: center; margin: 16px 0 0; line-height: 1.6;
+                    }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <h2 id="form-title">OpenSubtitles API Key</h2>
-                    <p class="tip" id="tip-text">
-                        Register a free account at opensubtitles.com,<br>
-                        then create an API key on the Developers page.
-                    </p>
+                    <h2 id="form-title">OpenSubtitles</h2>
+                    <div class="steps">
+                        <p class="steps-title" id="steps-title">Get a free API key:</p>
+                        <ol>
+                            <li id="step-1"><a href="https://www.opensubtitles.com/en/users/sign_up" target="_blank" rel="noopener">Register</a> a free account</li>
+                            <li id="step-2">Tap the account icon (top right) &rarr; API consumers &rarr; NEW CONSUMER, then copy the key shown</li>
+                            <li id="step-3">Tip: check <b>"Under dev"</b> when creating — it raises the daily download limit</li>
+                        </ol>
+                    </div>
                     <form method="POST">
-                        <input type="text" name="apikey" id="input-key" placeholder="Paste API key here" required autofocus>
+                        <input type="text" name="apikey" id="input-key" placeholder="API key (required)" required autofocus>
+                        <input type="text" name="username" id="input-username" placeholder="Username (optional)">
+                        <input type="password" name="password" id="input-password" placeholder="Password (optional)">
                         <button type="submit" id="btn-submit">Send to TV</button>
                     </form>
+                    <p class="privacy" id="privacy-text">Your account info is stored only on this TV and is never uploaded anywhere else.</p>
                 </div>
                 <script>
                     if (navigator.language.startsWith('zh')) {
-                        document.getElementById('form-title').innerText = 'OpenSubtitles API Key';
-                        document.getElementById('tip-text').innerHTML =
-                            '在 opensubtitles.com 免费注册账号，<br>然后在开发者页面创建 API Key。';
-                        document.getElementById('input-key').placeholder = '粘贴 API Key';
+                        document.getElementById('form-title').innerText = 'OpenSubtitles 配置';
+                        document.getElementById('steps-title').innerText = '免费获取 API Key：';
+                        document.getElementById('step-1').innerHTML = '<a href="https://www.opensubtitles.com/en/users/sign_up" target="_blank" rel="noopener">注册</a>一个免费账号';
+                        document.getElementById('step-2').innerText = '点右上角账户图标 → API consumers → NEW CONSUMER，创建后复制显示的 Key';
+                        document.getElementById('step-3').innerHTML = '提示：创建时建议勾选 <b>Under dev</b>，可提高每日下载次数';
+                        document.getElementById('input-key').placeholder = 'API Key（必填）';
+                        document.getElementById('input-username').placeholder = '用户名（可选，用自己账号的下载配额）';
+                        document.getElementById('input-password').placeholder = '密码（可选）';
                         document.getElementById('btn-submit').innerText = '发送到电视';
+                        document.getElementById('privacy-text').innerText = '账号信息只保存在本地设备上，不会上传到任何其他服务器。';
                     }
                 </script>
             </body>

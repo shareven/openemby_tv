@@ -285,6 +285,7 @@ fun PlayerMenu(
                                 onSubtitleTimeOffsetChange,
                                 mediaId = mediaInfo.id ?: "",
                                 mediaSourceId = currentMediaSourceId,
+                                mediaInfo = mediaInfo,
                                 repository = repository,
                                 onDismiss = onDismiss,
                                 onSubtitleDownloaded = onSubtitleDownloaded,
@@ -765,6 +766,7 @@ fun SubtitlesTab(
     onTimeOffsetChange: (Long) -> Unit,
     mediaId: String,
     mediaSourceId: String?,
+    mediaInfo: BaseItemDto? = null,
     repository: EmbyRepository,
     onDismiss: () -> Unit,
     onSubtitleDownloaded: (Int, RemoteSubtitleInfoDto) -> Unit,
@@ -795,6 +797,7 @@ fun SubtitlesTab(
         OnlineSubtitleSearchPanel(
             mediaId = mediaId,
             mediaSourceId = mediaSourceId,
+            mediaInfo = mediaInfo,
             repository = repository,
             searchFilename = searchFilename,
             searchTitle = searchTitle,
@@ -1015,6 +1018,7 @@ private fun OnlineSubtitleEntryRow(
 private fun OnlineSubtitleSearchPanel(
     mediaId: String,
     mediaSourceId: String?,
+    mediaInfo: BaseItemDto?,
     repository: EmbyRepository,
     searchFilename: String?,
     searchTitle: String?,
@@ -1112,9 +1116,25 @@ private fun OnlineSubtitleSearchPanel(
         }
     }
 
+    /** 从 Emby 元数据提取外部 ID/季集号，供 OpenSubtitles 精确匹配（key 大小写兼容不同服务器写法） */
+    fun externalIdQuery(): OnlineSubtitleQuery {
+        val info = mediaInfo ?: return OnlineSubtitleQuery()
+        val ids = info.providerIds.orEmpty()
+        fun findId(key: String): String? =
+            ids[key] ?: ids.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value
+        return OnlineSubtitleQuery(
+            imdbId = findId("Imdb")?.removePrefix("tt")?.takeIf { it.isNotBlank() },
+            tmdbId = findId("Tmdb")?.takeIf { it.isNotBlank() },
+            season = info.parentIndexNumber,
+            episode = info.indexNumber
+        )
+    }
+
     suspend fun runOnlineSearch() {
         val keyword = onlineKeyword.trim()
-        if (keyword.isBlank()) return
+        val idQuery = externalIdQuery()
+        // OpenSubtitles 有 IMDb/TMDB 即可精确搜索，关键词不再是硬性前提
+        if (keyword.isBlank() && !idQuery.hasExternalIds) return
         onlineDownloadError = null
         onlineState = OnlineSearchUiState.Searching
         try {
@@ -1122,7 +1142,7 @@ private fun OnlineSubtitleSearchPanel(
             val providers = when (source) {
                 OnlineSubtitleSourceKind.THUNDER -> enabled.filter { it.id == ThunderSubtitleProvider.ID }
                 OnlineSubtitleSourceKind.OPENSUBTITLES -> enabled.filter { it.id == OpenSubtitlesProvider.ID }
-                else -> enabled
+                OnlineSubtitleSourceKind.SERVER -> enabled
             }
             if (providers.isEmpty()) {
                 onlineState = OnlineSearchUiState.Error(
@@ -1141,7 +1161,11 @@ private fun OnlineSubtitleSearchPanel(
                 query = OnlineSubtitleQuery(
                     filename = searchFilename,
                     title = searchTitle,
-                    language = selectedLanguage ?: "zh-CN"
+                    language = selectedLanguage ?: "zh-CN",
+                    imdbId = idQuery.imdbId,
+                    tmdbId = idQuery.tmdbId,
+                    season = idQuery.season,
+                    episode = idQuery.episode
                 ),
                 providers = providers,
                 cid = cid,
@@ -1182,6 +1206,52 @@ private fun OnlineSubtitleSearchPanel(
         }
     }
 
+    // ===== 关键词扫码录入：手机网页改关键词，发送后自动搜索并关闭弹窗 =====
+    var showKeywordQrDialog by remember { mutableStateOf(false) }
+    var keywordQrServer by remember { mutableStateOf<com.xxxx.emby_tv.LocalServer?>(null) }
+    var keywordQrBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    var keywordQrAddress by remember { mutableStateOf("") }
+    // 关键词区块只在迅雷/无外部ID的 OpenSubtitles 下出现，按需启停服务
+    val keywordQrNeeded = source == OnlineSubtitleSourceKind.THUNDER ||
+        (source == OnlineSubtitleSourceKind.OPENSUBTITLES && !externalIdQuery().hasExternalIds)
+    LaunchedEffect(keywordQrNeeded) {
+        if (keywordQrNeeded && keywordQrServer == null) {
+            withContext(Dispatchers.IO) {
+                val server = com.xxxx.emby_tv.LocalServer.startSearchServer(
+                    themeColor.primaryDark,
+                    themeColor.secondaryLight,
+                    onSearchReceived = { kw ->
+                        val trimmed = kw.trim()
+                        if (trimmed.isNotBlank()) {
+                            onlineKeyword = trimmed
+                            // 发送到电视后：自动关闭二维码弹窗并按新关键词搜索
+                            showKeywordQrDialog = false
+                            launchSearch { runOnlineSearch() }
+                        }
+                    },
+                    // 网页打开时拉取电视当前关键词预填，在原词基础上修改
+                    currentQueryProvider = { onlineKeyword }
+                )
+                keywordQrServer = server
+                if (server != null) {
+                    com.xxxx.emby_tv.QrCodeUtils.getLocalIpAddress()?.let { ip ->
+                        val addr = "http://$ip:${server.listeningPort}"
+                        keywordQrAddress = addr
+                        keywordQrBitmap = com.xxxx.emby_tv.QrCodeUtils
+                            .generateQrCode(addr, 200)?.asImageBitmap()
+                    }
+                }
+            }
+        } else if (!keywordQrNeeded && keywordQrServer != null) {
+            withContext(Dispatchers.IO) { keywordQrServer?.stop() }
+            keywordQrServer = null
+            keywordQrBitmap = null
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { keywordQrServer?.stop() }
+    }
+
     /** 选择语言（Tab 聚焦或点击都会触发），选中后立即按新语言重搜 */
     fun selectLanguage(code: String) {
         if (selectedLanguage == code) return
@@ -1195,14 +1265,18 @@ private fun OnlineSubtitleSearchPanel(
         }
     }
 
-    /** 保存 OpenSubtitles Key（面板内扫码/更改共用），保存后自动按当前来源搜索 */
-    fun saveOsKey(key: String) {
+    /** 保存 OpenSubtitles 凭据（Key 必填，账号密码可选；面板内扫码/更改共用），保存后自动按当前来源搜索 */
+    fun saveOsCredentials(key: String, username: String, password: String) {
         val trimmed = key.trim()
         if (trimmed.isBlank()) return
         prefs.openSubtitlesApiKey = trimmed
         prefs.openSubtitlesEnabled = true
+        prefs.openSubtitlesUsername = username.trim()
+        prefs.openSubtitlesPassword = password
         osKeyConfigured = true
         osEnabled = true
+        // 配置成功即自动关闭二维码弹窗（放大弹窗/更改 Key 弹窗共用此开关），无需手动关
+        showOsKeyConfig = false
         android.widget.Toast.makeText(
             context,
             context.getString(R.string.opensubtitles_key_saved),
@@ -1222,7 +1296,9 @@ private fun OnlineSubtitleSearchPanel(
                 val server = com.xxxx.emby_tv.LocalServer.startApiKeyServer(
                     themeColor.primaryDark,
                     themeColor.secondaryLight
-                ) { key -> scope.launch { saveOsKey(key) } }
+                ) { key, username, password ->
+                    scope.launch { saveOsCredentials(key, username, password) }
+                }
                 osConfigServer = server
                 if (server != null) {
                     com.xxxx.emby_tv.QrCodeUtils.getLocalIpAddress()?.let { ip ->
@@ -1299,8 +1375,15 @@ private fun OnlineSubtitleSearchPanel(
                 onDismiss()
             } catch (e: Exception) {
                 ErrorHandler.logError("PlayerMenu", "下载在线字幕失败", e)
-                onlineDownloadError = e.message?.takeIf { it.isNotBlank() }
-                    ?: context.getString(R.string.subtitle_download_failed)
+                onlineDownloadError = when (e.message) {
+                    // OS 官方：406 = 每日下载配额用尽；429 = 请求过于频繁
+                    "opensubtitles_download_quota" ->
+                        context.getString(R.string.opensubtitles_download_quota)
+                    "opensubtitles_rate_limited" ->
+                        context.getString(R.string.opensubtitles_rate_limited)
+                    else -> e.message?.takeIf { it.isNotBlank() }
+                        ?: context.getString(R.string.subtitle_download_failed)
+                }
             } finally {
                 downloadingOnlineId = null
             }
@@ -1396,14 +1479,6 @@ private fun OnlineSubtitleSearchPanel(
                     onClick = { switchSource(OnlineSubtitleSourceKind.SERVER) },
                     onFocus = { switchSource(OnlineSubtitleSourceKind.SERVER) }
                 )
-                if (thunderAvailable && opensubtitlesAvailable) {
-                    OnlineSourceChip(
-                        label = stringResource(R.string.subtitle_source_online_all),
-                        isSelected = source == OnlineSubtitleSourceKind.ONLINE_ALL,
-                        onClick = { switchSource(OnlineSubtitleSourceKind.ONLINE_ALL) },
-                        onFocus = { switchSource(OnlineSubtitleSourceKind.ONLINE_ALL) }
-                    )
-                }
                 if (thunderAvailable) {
                     OnlineSourceChip(
                         label = thunderLabel,
@@ -1497,8 +1572,8 @@ private fun OnlineSubtitleSearchPanel(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
             }
-        } else if (source != OnlineSubtitleSourceKind.SERVER && osKeyConfigured) {
-            // 已配置：提供“更改 Key”入口（弹大二维码，不中断当前搜索列表）
+        } else if (source == OnlineSubtitleSourceKind.OPENSUBTITLES && osKeyConfigured) {
+            // 已配置：提供“更改 Key”入口（弹大二维码，不中断当前搜索列表），仅 OpenSubtitles 来源下显示
             item {
                 Surface(
                     onClick = { showOsKeyConfig = true },
@@ -1569,9 +1644,7 @@ private fun OnlineSubtitleSearchPanel(
                 }
             }
         // 迅雷源参与搜索时说明其语言行为，避免“切换语言结果不变”的困惑
-        if (source != OnlineSubtitleSourceKind.SERVER && thunderAvailable &&
-            (source == OnlineSubtitleSourceKind.THUNDER || source == OnlineSubtitleSourceKind.ONLINE_ALL)
-        ) {
+        if (source == OnlineSubtitleSourceKind.THUNDER && thunderAvailable) {
             item {
                 Text(
                     text = stringResource(R.string.subtitle_thunder_language_hint),
@@ -1586,7 +1659,11 @@ private fun OnlineSubtitleSearchPanel(
         }
 
         // ===== 在线源：搜索关键词（可编辑，默认媒体文件名），位于语言下方 =====
-        if (source != OnlineSubtitleSourceKind.SERVER) {
+        // 仅迅雷按文件名/CID 匹配需要关键词；OpenSubtitles 有 IMDb/TMDB 时精确匹配无需关键词，
+        // 元数据缺外部 ID（第三方源常见）时保留关键词编辑作兜底
+        val showKeywordRow = source == OnlineSubtitleSourceKind.THUNDER ||
+            (source == OnlineSubtitleSourceKind.OPENSUBTITLES && !externalIdQuery().hasExternalIds)
+        if (showKeywordRow) {
             item {
                 Text(
                     text = stringResource(R.string.online_subtitle_search_keyword),
@@ -1599,37 +1676,80 @@ private fun OnlineSubtitleSearchPanel(
                 Spacer(modifier = Modifier.height(8.dp))
             }
             item {
-                Surface(
-                    onClick = { showKeywordDialog = true },
-                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        contentColor = Color.White,
-                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
-                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
-                    ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        onClick = { showKeywordDialog = true },
+                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            contentColor = Color.White,
+                            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                        ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = onlineKeyword.ifBlank {
-                                stringResource(R.string.online_subtitle_search_keyword)
-                            },
-                            style = TvMaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = onlineKeyword.ifBlank {
+                                    stringResource(R.string.online_subtitle_search_keyword)
+                                },
+                                style = TvMaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                    // 手机扫码改关键词：点按确定弹出大二维码
+                    Surface(
+                        onClick = { if (keywordQrBitmap != null) showKeywordQrDialog = true },
+                        shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            contentColor = Color.White,
+                            focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                            focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                        ),
+                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.05f),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        if (keywordQrBitmap != null) {
+                            Image(
+                                bitmap = keywordQrBitmap!!,
+                                contentDescription = stringResource(R.string.online_subtitle_edit_keyword),
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(7.dp)
+                                    .background(Color.White, RoundedCornerShape(4.dp))
+                                    .padding(2.dp)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = TvMaterialTheme.colorScheme.secondary,
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1697,13 +1817,8 @@ private fun OnlineSubtitleSearchPanel(
                             SwitchToOnlineHint(
                                 onClick = {
                                     switchSource(
-                                        when {
-                                            thunderAvailable && opensubtitlesAvailable ->
-                                                OnlineSubtitleSourceKind.ONLINE_ALL
-
-                                            thunderAvailable -> OnlineSubtitleSourceKind.THUNDER
-                                            else -> OnlineSubtitleSourceKind.OPENSUBTITLES
-                                        }
+                                        if (thunderAvailable) OnlineSubtitleSourceKind.THUNDER
+                                        else OnlineSubtitleSourceKind.OPENSUBTITLES
                                     )
                                 }
                             )
@@ -1720,13 +1835,8 @@ private fun OnlineSubtitleSearchPanel(
                             SwitchToOnlineHint(
                                 onClick = {
                                     switchSource(
-                                        when {
-                                            thunderAvailable && opensubtitlesAvailable ->
-                                                OnlineSubtitleSourceKind.ONLINE_ALL
-
-                                            thunderAvailable -> OnlineSubtitleSourceKind.THUNDER
-                                            else -> OnlineSubtitleSourceKind.OPENSUBTITLES
-                                        }
+                                        if (thunderAvailable) OnlineSubtitleSourceKind.THUNDER
+                                        else OnlineSubtitleSourceKind.OPENSUBTITLES
                                     )
                                 }
                             )
@@ -1768,7 +1878,7 @@ private fun OnlineSubtitleSearchPanel(
             val visibleProviderIds: Set<String>? = when (source) {
                 OnlineSubtitleSourceKind.THUNDER -> setOf(ThunderSubtitleProvider.ID)
                 OnlineSubtitleSourceKind.OPENSUBTITLES -> setOf(OpenSubtitlesProvider.ID)
-                else -> null
+                OnlineSubtitleSourceKind.SERVER -> null
             }
             when (val state = onlineState) {
                 OnlineSearchUiState.Searching -> item {
@@ -1841,13 +1951,24 @@ private fun OnlineSubtitleSearchPanel(
         )
     }
 
+    // 手机扫码改关键词的大二维码弹窗（收到手机发送后自动关闭，见 startSearchServer 回调）
+    if (showKeywordQrDialog && keywordQrBitmap != null) {
+        QrCodeDialog(
+            title = stringResource(R.string.online_subtitle_edit_keyword),
+            hint = stringResource(R.string.keyword_qr_scan_hint),
+            bitmap = keywordQrBitmap,
+            address = keywordQrAddress,
+            onDismiss = { showKeywordQrDialog = false }
+        )
+    }
+
     if (showOsKeyConfig) {
         OpenSubtitlesKeyConfigDialog(
             // 复用面板内嵌的配置服务（未配置场景），避免出现两个不同地址的二维码
             sharedServer = osConfigServer,
             sharedQr = osConfigQr,
             sharedAddress = osConfigAddress,
-            onKeySaved = { key -> saveOsKey(key) },
+            onKeySaved = { key, username, password -> saveOsCredentials(key, username, password) },
             onDismiss = { showOsKeyConfig = false }
         )
     }
@@ -1862,7 +1983,7 @@ private fun OnlineSubtitleSearchPanel(
  */
 @Composable
 private fun OpenSubtitlesKeyConfigDialog(
-    onKeySaved: (String) -> Unit,
+    onKeySaved: (apiKey: String, username: String, password: String) -> Unit,
     onDismiss: () -> Unit,
     sharedServer: com.xxxx.emby_tv.LocalServer? = null,
     sharedQr: androidx.compose.ui.graphics.ImageBitmap? = null,
@@ -1884,8 +2005,8 @@ private fun OpenSubtitlesKeyConfigDialog(
                 val server = com.xxxx.emby_tv.LocalServer.startApiKeyServer(
                     themeColor.primaryDark,
                     themeColor.secondaryLight
-                ) { key ->
-                    if (key.isNotBlank()) onKeySaved(key.trim())
+                ) { key, username, password ->
+                    if (key.isNotBlank()) onKeySaved(key.trim(), username.trim(), password)
                 }
                 localServer = server
                 if (server != null) {
@@ -1907,77 +2028,14 @@ private fun OpenSubtitlesKeyConfigDialog(
     val displayQr = if (useShared) sharedQr else qrCodeBitmap
     val displayAddress = if (useShared) sharedAddress else serverAddress
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            colors = SurfaceDefaults.colors(
-                containerColor = Color(0xFF202020).copy(alpha = 0.95f),
-                contentColor = Color.White
-            ),
-            modifier = Modifier.padding(40.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = stringResource(R.string.opensubtitles_api_key),
-                    style = TvMaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.online_subtitle_opensubtitles_desc),
-                    style = TvMaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.6f)
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                if (displayQr != null) {
-                    Image(
-                        bitmap = displayQr!!,
-                        contentDescription = stringResource(R.string.opensubtitles_scan_hint),
-                        modifier = Modifier
-                            .size(220.dp)
-                            .background(Color.White, RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    )
-                } else {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(60.dp),
-                        color = TvMaterialTheme.colorScheme.secondary
-                    )
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = stringResource(R.string.opensubtitles_scan_hint) +
-                            if (displayAddress.isNotBlank()) "\n$displayAddress" else "",
-                    style = TvMaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(20.dp))
-                Surface(
-                    onClick = onDismiss,
-                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color.White.copy(alpha = 0.1f),
-                        contentColor = Color.White,
-                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
-                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
-                    )
-                ) {
-                    Text(
-                        text = stringResource(R.string.close),
-                        style = TvMaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
-                    )
-                }
-            }
-        }
-    }
+    QrCodeDialog(
+        title = stringResource(R.string.opensubtitles_api_key),
+        hint = stringResource(R.string.opensubtitles_scan_hint),
+        bitmap = displayQr,
+        address = displayAddress,
+        onDismiss = onDismiss,
+        description = stringResource(R.string.online_subtitle_opensubtitles_desc)
+    )
 }
 
 /**
@@ -2073,8 +2131,95 @@ private fun LanguageSelectDialog(
 }
 
 /** 在线字幕搜索来源 */
+/**
+ * 通用扫码弹窗：标题 + 可选描述 + 大二维码 + 提示 + 本机地址 + 关闭按钮。
+ * OpenSubtitles 配置 / 关键词修改等场景共用，文案由调用方作为参数传入。
+ */
+@Composable
+private fun QrCodeDialog(
+    title: String,
+    hint: String,
+    bitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    address: String,
+    onDismiss: () -> Unit,
+    description: String? = null
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            colors = SurfaceDefaults.colors(
+                containerColor = Color(0xFF202020).copy(alpha = 0.95f),
+                contentColor = Color.White
+            ),
+            modifier = Modifier.padding(40.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = title,
+                    style = TvMaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!description.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = description,
+                        style = TvMaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.6f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = hint,
+                        modifier = Modifier
+                            .size(220.dp)
+                            .background(Color.White, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(60.dp),
+                        color = TvMaterialTheme.colorScheme.secondary
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = hint + if (address.isNotBlank()) "\n$address" else "",
+                    style = TvMaterialTheme.typography.bodySmall,
+                    color = Color.White.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(20.dp))
+                Surface(
+                    onClick = onDismiss,
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(50)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.1f),
+                        contentColor = Color.White,
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary
+                    )
+                ) {
+                    Text(
+                        text = stringResource(R.string.close),
+                        style = TvMaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 private enum class OnlineSubtitleSourceKind {
-    SERVER, ONLINE_ALL, THUNDER, OPENSUBTITLES
+    SERVER, THUNDER, OPENSUBTITLES
 }
 
 /** 在线字幕站（客户端直连）搜索状态 */

@@ -17,11 +17,23 @@ data class OnlineSubtitleQuery(
     /** 语言代码（SubtitleLanguageResolver 归一后的值，如 zh-CN / eng） */
     val language: String = "zh-CN",
     /** 预计算的迅雷 CID（仓库层对播放流 Range 取样算出，失败为 null） */
-    val cid: String? = null
+    val cid: String? = null,
+    /** Emby 元数据里的 IMDb ID（纯数字，已去 tt 前缀），OpenSubtitles 精确匹配用 */
+    val imdbId: String? = null,
+    /** Emby 元数据里的 TMDB ID，无 IMDb 时 OpenSubtitles 精确匹配用 */
+    val tmdbId: String? = null,
+    /** 剧集季号（ParentIndexNumber） */
+    val season: Int? = null,
+    /** 剧集集号（IndexNumber） */
+    val episode: Int? = null
 ) {
     /** 默认搜索词：优先文件名，其次标题 */
     val defaultKeyword: String
         get() = filename?.takeIf { it.isNotBlank() } ?: title.orEmpty()
+
+    /** 是否具备外部 ID 精确匹配条件（OpenSubtitles 免关键词搜索） */
+    val hasExternalIds: Boolean
+        get() = !imdbId.isNullOrBlank() || !tmdbId.isNullOrBlank()
 }
 
 /** 搜索结果项（provider 内唯一 id + provider 自用的下载载荷） */

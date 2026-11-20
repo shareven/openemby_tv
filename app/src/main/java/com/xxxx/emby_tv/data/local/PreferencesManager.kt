@@ -126,6 +126,16 @@ class PreferencesManager(context: Context) {
         get() = prefs.getString(KEY_OPENSUBTITLES_API_KEY, "") ?: ""
         set(value) = prefs.edit().putString(KEY_OPENSUBTITLES_API_KEY, value).apply()
 
+    // OpenSubtitles 账号（可选）：配合 API Key 登录换 token，走账号自己的下载配额。
+    // 只保存在本机 SharedPreferences，不提交到任何服务器。
+    var openSubtitlesUsername: String
+        get() = prefs.getString(KEY_OPENSUBTITLES_USERNAME, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENSUBTITLES_USERNAME, value).apply()
+
+    var openSubtitlesPassword: String
+        get() = prefs.getString(KEY_OPENSUBTITLES_PASSWORD, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_OPENSUBTITLES_PASSWORD, value).apply()
+
     // 字幕搜索语言：记住用户上次选择，空串表示未选过（首次进入自动解析默认语言）
     var subtitleSearchLanguage: String
         get() = prefs.getString(KEY_SUBTITLE_SEARCH_LANGUAGE, "") ?: ""
@@ -260,6 +270,8 @@ class PreferencesManager(context: Context) {
         private const val KEY_THUNDER_SUBTITLE_ENABLED = "thunder_subtitle_enabled"
         private const val KEY_OPENSUBTITLES_ENABLED = "opensubtitles_enabled"
         private const val KEY_OPENSUBTITLES_API_KEY = "opensubtitles_api_key"
+        private const val KEY_OPENSUBTITLES_USERNAME = "opensubtitles_username"
+        private const val KEY_OPENSUBTITLES_PASSWORD = "opensubtitles_password"
 
         private const val KEY_SUBTITLE_SEARCH_LANGUAGE = "subtitle_search_language"
 

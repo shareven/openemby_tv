@@ -176,6 +176,8 @@ fun LoginScreen(
     }
 
     var showMenu by remember { mutableStateOf(false) }
+    // 手机网页发送登录配置的次数计数：变化即触发自动登录
+    var autoLoginRequest by remember { mutableIntStateOf(0) }
     val failText = stringResource(id = R.string.login_failed)
 
     // 检查更新
@@ -196,7 +198,9 @@ fun LoginScreen(
                 port = pt
                 username = user
                 password = pass
-                loginButtonFocusRequester.requestFocus()
+                // 网页端点发送后由电视自动登录（见下方 autoLoginRequest 监听），
+                // 不再把焦点丢给登录按钮让用户用遥控器确认
+                autoLoginRequest++
             }
             localServer = server
 
@@ -238,6 +242,18 @@ fun LoginScreen(
                 }
             }
         )
+    }
+
+    // 手机网页发送配置后自动登录：账号密码齐全直接登录，信息不全则聚焦登录按钮走手动流程
+    LaunchedEffect(autoLoginRequest) {
+        if (autoLoginRequest > 0) {
+            if (host.isNotEmpty() && username.isNotEmpty() && password.isNotEmpty()) {
+                loginButtonFocusRequester.requestFocus()
+                onLoginClick()
+            } else {
+                loginButtonFocusRequester.requestFocus()
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {

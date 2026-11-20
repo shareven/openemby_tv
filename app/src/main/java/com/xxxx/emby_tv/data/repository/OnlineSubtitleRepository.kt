@@ -59,7 +59,14 @@ class OnlineSubtitleRepository private constructor(
         }
         val osKey = prefs.openSubtitlesApiKey
         if (prefs.openSubtitlesEnabled && osKey.isNotBlank()) {
-            list.add(OpenSubtitlesProvider.create(context, osKey))
+            list.add(
+                OpenSubtitlesProvider.create(
+                    context,
+                    osKey,
+                    prefs.openSubtitlesUsername,
+                    prefs.openSubtitlesPassword
+                )
+            )
         }
         return list
     }
@@ -82,7 +89,11 @@ class OnlineSubtitleRepository private constructor(
             filename = activeKeyword ?: query.filename,
             title = activeKeyword ?: query.title,
             language = query.language,
-            cid = cid
+            cid = cid,
+            imdbId = query.imdbId,
+            tmdbId = query.tmdbId,
+            season = query.season,
+            episode = query.episode
         )
         val supported = providers.filter { it.supportsLanguage(query.language) }
         if (supported.isEmpty()) return@coroutineScope emptyList()

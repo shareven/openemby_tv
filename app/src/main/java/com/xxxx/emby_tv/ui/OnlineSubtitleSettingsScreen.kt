@@ -86,7 +86,7 @@ fun OnlineSubtitleSettingsScreen(
             val server = LocalServer.startApiKeyServer(
                 themeColor.primaryDark,
                 themeColor.secondaryLight
-            ) { key ->
+            ) { key, username, password ->
                 apiKey = key
                 // 收到 Key 后自动开启 OpenSubtitles 源
                 if (!openSubtitlesEnabled) {
@@ -94,6 +94,8 @@ fun OnlineSubtitleSettingsScreen(
                     prefs.openSubtitlesEnabled = true
                 }
                 prefs.openSubtitlesApiKey = key
+                prefs.openSubtitlesUsername = username.trim()
+                prefs.openSubtitlesPassword = password
                 Toast.makeText(
                     context,
                     context.getString(R.string.opensubtitles_key_saved),
@@ -208,6 +210,8 @@ fun OnlineSubtitleSettingsScreen(
                         openSubtitlesEnabled = false
                         prefs.openSubtitlesApiKey = ""
                         prefs.openSubtitlesEnabled = false
+                        prefs.openSubtitlesUsername = ""
+                        prefs.openSubtitlesPassword = ""
                         Toast.makeText(
                             context,
                             context.getString(R.string.opensubtitles_key_cleared),
